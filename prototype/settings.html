@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<title>企业配置 · Agent Foundation</title>
+<link rel="stylesheet" href="assets/app.css"/>
+<style>
+  .settings{display:grid;grid-template-columns:200px 1fr;gap:16px}
+  .snav a{display:block;padding:8px 12px;border-radius:6px;color:var(--text-2);margin-bottom:2px}
+  .snav a.active{background:var(--primary-50);color:var(--primary);font-weight:500}
+  .sect-title{font-weight:600;font-size:15px;margin:0 0 4px}
+  .sect-desc{color:var(--text-3);font-size:12px;margin-bottom:14px}
+  .ptype{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:1px 7px;border-radius:4px;background:var(--gray-bg);border:1px solid var(--border)}
+  .okline{color:var(--success);font-size:12px}
+  .chan{display:flex;gap:12px;align-items:flex-start;padding:14px;border:1px solid var(--border);border-radius:10px;background:#fff}
+  .chan .lg{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:12px;flex:none}
+  .preview{background:#fafbfd;border:1px dashed var(--border-strong);border-radius:8px;padding:10px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+  <main class="main"><div class="page">
+    <div class="settings">
+      <div class="card" style="padding:8px;align-self:start"><div class="snav">
+        <a href="#" class="active" data-s="erp">ERP 数据源</a><a href="#" data-s="notify">通知通道</a><a href="#" data-s="identity">身份与组织架构</a><a href="#" data-s="llm">LLM 配置</a><a href="#" data-s="storage">对象存储</a><a href="#" data-s="cred">密钥引用</a>
+      </div><div class="muted small" style="padding:10px 12px;border-top:1px solid var(--border);margin-top:6px">企业差异走配置不走代码：流程与节点只引用 profile 名称</div></div>
+
+      <div>
+        <!-- ERP -->
+        <div class="spane" data-s="erp">
+          <h3 class="sect-title">ERP 单据数据源（DocumentSource profile）</h3>
+          <div class="sect-desc">三种接入方式统一映射到标准单据模型（doc_no / ref_no / party_id / doc_date / amount / qty / item_code / extra）。节点 <span class="mono">recon.fetch_documents</span> 的 <span class="mono">config.source_profile</span> 引用这里的名称。</div>
+          <div class="grid g3" style="margin-bottom:16px">
+            <div class="profile-card active"><h4>erp_dev <span class="ptype">直连库 · JDBC</span><span class="spacer"></span><span class="switch on"></span></h4><div class="desc">SQL Server · ERP_PROD 只读账号 · 采购单 / 发票</div><dl class="kv" style="margin-top:8px;grid-template-columns:70px 1fr"><dt>连接</dt><dd class="mono">jdbc:sqlserver://erp-db:1433;db=ERP</dd><dt>凭据</dt><dd class="mono">credential_ref = erp-readonly</dd><dt>数据集</dt><dd>erp_po · erp_invoice</dd><dt>最近测试</dt><dd class="okline">✓ 今天 13:10 · 抽样 5 行映射通过</dd></dl><div class="foot"><button class="btn sm">编辑映射</button><button class="btn sm" onclick="AF.toast('连通性正常 · 抽样 5 行映射通过')">测试</button></div></div>
+            <div class="profile-card"><h4>erp_api <span class="ptype">接口 · HTTP</span><span class="spacer"></span><span class="switch on"></span></h4><div class="desc">ERP 中间层 REST · 分页 page/size · JSONPath 映射</div><dl class="kv" style="margin-top:8px;grid-template-columns:70px 1fr"><dt>Base URL</dt><dd class="mono">https://erp-gw.corp/api/v2</dd><dt>鉴权</dt><dd class="mono">credential_ref = erp-gw-token</dd><dt>数据集</dt><dd>erp_po</dd><dt>最近测试</dt><dd class="okline">✓ 昨天 18:00</dd></dl><div class="foot"><button class="btn sm">编辑映射</button><button class="btn sm">测试</button></div></div>
+            <div class="profile-card"><h4>supplier_files <span class="ptype">导出文件 · xlsx/csv</span><span class="spacer"></span><span class="switch on"></span></h4><div class="desc">供应商对账单：前端上传到 MinIO agent-uploads / SFTP 目录</div><dl class="kv" style="margin-top:8px;grid-template-columns:70px 1fr"><dt>来源</dt><dd>上传 + sftp://files.corp/recon/in</dd><dt>格式</dt><dd>xlsx · 首行表头 · GBK/UTF-8 自动</dd><dt>数据集</dt><dd>supplier_statement</dd><dt>最近测试</dt><dd class="okline">✓ 今天 09:02 · 模板校验通过</dd></dl><div class="foot"><button class="btn sm">列映射向导</button><button class="btn sm">上传样例</button></div></div>
+          </div>
+          <div class="card"><div class="hd">字段映射 · erp_dev › erp_po<span class="spacer"></span><span class="muted small">左：标准单据模型 · 右：ERP 表列 / SQL 表达式</span></div>
+            <div class="bd" style="padding:0">
+              <table class="mapping"><thead><tr><th style="width:160px">标准字段</th><th style="width:90px">类型</th><th>ERP 列 / 表达式（dbo.PO_HEADER h JOIN dbo.PO_LINE l）</th><th style="width:220px">抽样预览</th></tr></thead><tbody>
+                <tr><td class="mono">doc_no <span class="tag red" style="font-size:10px">匹配键</span></td><td>string</td><td><input value="h.PO_NO"/></td><td class="mono muted">PO-2608-0113</td></tr>
+                <tr><td class="mono">ref_no</td><td>string</td><td><input value="l.INVOICE_NO"/></td><td class="mono muted">INV-88213</td></tr>
+                <tr><td class="mono">party_id</td><td>string</td><td><input value="h.VENDOR_CODE"/></td><td class="mono muted">SUP-0002</td></tr>
+                <tr><td class="mono">doc_date</td><td>date</td><td><input value="CONVERT(date, h.PO_DATE)"/></td><td class="mono muted">2026-08-12</td></tr>
+                <tr><td class="mono">amount</td><td>decimal</td><td><input value="l.QTY * l.UNIT_PRICE * (1 + l.TAX_RATE)"/></td><td class="mono muted">12400.00</td></tr>
+                <tr><td class="mono">qty</td><td>decimal</td><td><input value="l.QTY"/></td><td class="mono muted">100</td></tr>
+                <tr><td class="mono">item_code</td><td>string</td><td><input value="l.ITEM_CODE"/></td><td class="mono muted">MAT-00912</td></tr>
+                <tr><td class="mono">extra.warehouse</td><td>string</td><td><input value="l.WH_CODE"/></td><td class="mono muted">WH01</td></tr>
+              </tbody></table>
+              <div class="row" style="padding:10px 14px;border-top:1px solid var(--border)"><span class="muted small">过滤模板：<span class="mono">h.VENDOR_CODE = :party_id AND FORMAT(h.PO_DATE,'yyyy-MM') = :period</span> · 分页 OFFSET/FETCH · 只允许 SELECT · 行数上限 100,000</span><span class="spacer"></span><button class="btn sm">抽样预览 5 行</button><button class="btn sm primary" onclick="AF.toast('映射已保存 · 版本 7')">保存映射</button></div>
+            </div></div>
+        </div>
+
+        <!-- 通知通道 -->
+        <div class="spane" data-s="notify" style="display:none">
+          <h3 class="sect-title">通知通道（NotificationChannel）</h3>
+          <div class="sect-desc">审批请求、节点失败、审批超时提醒、运维告警（Alertmanager）都经通知中心按路由发送。默认通道：<b>企业微信</b>；不同企业可切换到钉钉 / 飞书 / 邮件 / Webhook，流程与节点只引用通道名。</div>
+          <div class="grid g2" style="margin-bottom:16px">
+            <div class="chan" style="border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-100)"><div class="lg" style="background:#07c160">微</div><div style="flex:1"><div class="row"><b>wecom-default</b><span class="tag green">默认</span><span class="ptype">企业微信 · 应用消息 + 群机器人</span><span class="spacer"></span><span class="switch on"></span></div><dl class="kv" style="margin-top:8px;grid-template-columns:80px 1fr"><dt>企业 ID</dt><dd class="mono">ww8f3e…21</dd><dt>应用</dt><dd class="mono">AgentId 1000012 · credential_ref = wecom-app-secret</dd><dt>群机器人</dt><dd class="mono">财务对账运营群 · webhook ···9a1c</dd><dt>用户映射</dt><dd>users.external_id（企业微信 userid，来自通讯录同步）</dd><dt>24h</dt><dd>发送 212 · 失败 0</dd></dl><div class="foot" style="margin-top:8px;display:flex;gap:6px"><button class="btn sm" onclick="AF.toast('测试消息已发送到 alice 的企业微信')">发送测试</button><button class="btn sm">编辑</button></div></div></div>
+            <div class="chan"><div class="lg" style="background:#1677ff">钉</div><div style="flex:1"><div class="row"><b>dingtalk-ops</b><span class="ptype">钉钉 · 群机器人</span><span class="spacer"></span><span class="switch on"></span></div><dl class="kv" style="margin-top:8px;grid-template-columns:80px 1fr"><dt>Webhook</dt><dd class="mono">oapi.dingtalk.com/robot/send?access_token=···7bd2</dd><dt>加签</dt><dd class="mono">credential_ref = dingtalk-ops-sign</dd><dt>24h</dt><dd>发送 3 · 失败 0</dd></dl><div class="foot" style="margin-top:8px;display:flex;gap:6px"><button class="btn sm">发送测试</button><button class="btn sm">编辑</button><button class="btn sm ghost">设为默认</button></div></div></div>
+            <div class="chan"><div class="lg" style="background:#3370ff">飞</div><div style="flex:1"><div class="row"><b>feishu</b><span class="ptype">飞书 · 应用消息</span><span class="spacer"></span><span class="switch"></span></div><div class="muted small" style="margin-top:8px">未启用 · 配置 App ID / Secret 后可作为审批通道</div><div class="foot" style="margin-top:8px;display:flex;gap:6px"><button class="btn sm">配置</button></div></div></div>
+            <div class="chan"><div class="lg" style="background:#8b93a7">✉</div><div style="flex:1"><div class="row"><b>email-finance</b><span class="ptype">邮件 · SMTP</span><span class="spacer"></span><span class="switch on"></span></div><dl class="kv" style="margin-top:8px;grid-template-columns:80px 1fr"><dt>SMTP</dt><dd class="mono">smtp.corp:587 STARTTLS · noreply@corp</dd><dt>用途</dt><dd>备用通道（NotificationFailing 时兜底）· 日报</dd></dl><div class="foot" style="margin-top:8px;display:flex;gap:6px"><button class="btn sm">发送测试</button><button class="btn sm">编辑</button></div></div></div>
+          </div>
+          <div class="card"><div class="hd">路由规则<span class="spacer"></span><button class="btn sm">+ 添加路由</button></div><div class="bd" style="padding:6px 16px">
+            <div class="route-row" style="color:var(--text-3);font-weight:500"><span>事件 / 告警</span><span>流程匹配</span><span>最低级别</span><span>通道</span><span></span></div>
+            <div class="route-row"><span class="mono">approval.requested / reminder</span><span class="mono">*</span><span>—</span><span><span class="chip">wecom-default → 审批人（应用消息）</span></span><span class="switch on"></span></div>
+            <div class="route-row"><span class="mono">node.failed (onError=pause)</span><span class="mono">recon.*</span><span>P2</span><span><span class="chip">wecom-default → 财务对账运营群</span></span><span class="switch on"></span></div>
+            <div class="route-row"><span class="mono">node.failed</span><span class="mono">purchase.* / sales.*</span><span>P2</span><span><span class="chip">dingtalk-ops</span></span><span class="switch on"></span></div>
+            <div class="route-row"><span class="mono">alert.* (Alertmanager)</span><span class="mono">*</span><span>P1/P2</span><span><span class="chip">wecom-default → 运维群</span> <span class="chip">P1 + 电话</span></span><span class="switch on"></span></div>
+            <div class="route-row"><span class="mono">run.finished</span><span class="mono">*</span><span>—</span><span><span class="chip">wecom-default → 发起人</span></span><span class="switch on"></span></div>
+            <div class="route-row"><span class="mono">notification.failed</span><span class="mono">*</span><span>—</span><span><span class="chip">email-finance（备用）</span></span><span class="switch on"></span></div>
+          </div></div>
+        </div>
+
+        <!-- 身份 -->
+        <div class="spane" data-s="identity" style="display:none">
+          <h3 class="sect-title">身份与组织架构</h3>
+          <div class="sect-desc">登录走 OIDC（开发 Keycloak，生产可接企业 IdP / 企业微信 / AD）；部门、用户、角色由 IdentityProvider 同步，审批节点的审批人在运行时据此解析。</div>
+          <div class="grid g2" style="margin-bottom:16px">
+            <div class="card"><div class="hd">OIDC 登录</div><div class="bd"><dl class="kv" style="grid-template-columns:110px 1fr"><dt>Issuer</dt><dd class="mono">https://sso.corp/realms/agent-platform</dd><dt>Client（前端）</dt><dd class="mono">web · public · PKCE</dd><dt>Client（API）</dt><dd class="mono">platform-api · bearer-only</dd><dt>Broker</dt><dd>企业微信扫码 <span class="tag green">已启用</span> · AD/LDAP <span class="tag gray">未启用</span></dd><dt>状态</dt><dd class="okline">✓ JWKS 可达 · 今日登录 37 人</dd></dl></div></div>
+            <div class="card"><div class="hd">组织架构同步<span class="spacer"></span><button class="btn sm" onclick="AF.toast('已触发同步：部门 24 · 用户 312 · 组 9')">立即同步</button></div><div class="bd"><dl class="kv" style="grid-template-columns:110px 1fr"><dt>来源</dt><dd>企业微信通讯录 API <span class="tag green">主</span> · Keycloak SCIM <span class="tag gray">备</span></dd><dt>周期</dt><dd>每 1h · 上次 45 分钟前 <span class="okline">✓</span></dd><dt>规模</dt><dd>部门 24 · 用户 312（在职 298）· 组 9</dd><dt>上级关系</dt><dd>来自通讯录 leader 字段 → users.manager_user_id（用于"发起人上级"）</dd><dt>停用策略</dt><dd>不删除，置 status=inactive；进行中审批可转办</dd></dl></div></div>
+          </div>
+          <div class="grid g2">
+            <div class="card"><div class="hd">IdP 组 → 平台角色映射<span class="spacer"></span><button class="btn sm">+ 添加</button></div><table class="tbl"><thead><tr><th>IdP 组</th><th>平台角色</th><th>成员</th><th></th></tr></thead><tbody>
+              <tr><td class="mono">platform-admin</td><td><span class="tag red">admin</span></td><td>2</td><td><span class="del muted">×</span></td></tr>
+              <tr><td class="mono">flow-editors</td><td><span class="tag blue">editor</span></td><td>8</td><td><span class="del muted">×</span></td></tr>
+              <tr><td class="mono">finance-ap</td><td><span class="tag purple">operator</span> + <span class="tag gray">recon_ops</span></td><td>6</td><td><span class="del muted">×</span></td></tr>
+              <tr><td class="mono">purchase-managers</td><td><span class="tag purple">operator</span> + <span class="tag gray">po_approver</span></td><td>4</td><td><span class="del muted">×</span></td></tr>
+              <tr><td class="mono">*（其他已登录用户）</td><td><span class="tag gray">viewer</span></td><td>—</td><td></td></tr>
+            </tbody></table></div>
+            <div class="card"><div class="hd">组织架构预览</div><div class="bd" style="font-size:12.5px;line-height:1.9"><div>▾ 集团总部 <span class="muted">(312)</span></div><div style="padding-left:16px">▾ 财务共享中心 <span class="muted">(23) · 主管 陈总监</span></div><div style="padding-left:32px">应付组 <span class="muted">(6) · 主管 李经理</span> <span class="tag gray">recon_ops</span></div><div style="padding-left:32px">应收组 <span class="muted">(8)</span></div><div style="padding-left:32px">总账组 <span class="muted">(9)</span></div><div style="padding-left:16px">▸ 采购中心 <span class="muted">(41) · 主管 王经理</span></div><div style="padding-left:16px">▸ 销售中心 <span class="muted">(87)</span></div><div style="padding-left:16px">▸ 信息中心 <span class="muted">(19)</span></div></div></div>
+          </div>
+        </div>
+
+        <!-- LLM -->
+        <div class="spane" data-s="llm" style="display:none">
+          <h3 class="sect-title">LLM 配置（LLM profile）</h3>
+          <div class="sect-desc">节点只引用 profile 名称；供应商可替换。LLM 仅用于节点内部的文本理解 / 抽取 / 分类，输出受 JSON Schema 约束，不决定流程走向。</div>
+          <div class="grid g2">
+            <div class="profile-card active"><h4>default <span class="ptype">OpenAI 兼容 · 私有化</span><span class="spacer"></span><span class="switch on"></span></h4><dl class="kv" style="margin-top:8px;grid-template-columns:80px 1fr"><dt>Base URL</dt><dd class="mono">http://llm-gw.corp/v1</dd><dt>模型</dt><dd class="mono">qwen2.5-72b-instruct</dd><dt>凭据</dt><dd class="mono">credential_ref = llm-gw-key</dd><dt>预算</dt><dd>单节点 ≤ 20k tokens · 日 ≤ ¥200 → BudgetExceeded（不重试）</dd><dt>7 日用量</dt><dd>1.2M tokens · ¥86</dd></dl><div class="foot"><button class="btn sm">测试 extract</button><button class="btn sm">编辑</button></div></div>
+            <div class="profile-card"><h4>azure-gpt4o <span class="ptype">Azure OpenAI</span><span class="spacer"></span><span class="switch"></span></h4><div class="desc" style="margin-top:8px">未启用 · 供合规允许的外部场景</div><div class="foot"><button class="btn sm">配置</button></div></div>
+          </div>
+        </div>
+
+        <!-- 存储 -->
+        <div class="spane" data-s="storage" style="display:none">
+          <h3 class="sect-title">对象存储（ArtifactStore）</h3>
+          <div class="sect-desc">节点大输出、原始单据、报告全部落对象存储，上下文只保留 ref://artifact/&lt;id&gt;。开发 MinIO 单节点，生产换云对象存储只改此处。</div>
+          <div class="profile-card active" style="max-width:640px"><h4>minio-dev <span class="ptype">S3 · MinIO</span><span class="spacer"></span><span class="switch on"></span></h4><dl class="kv" style="margin-top:8px;grid-template-columns:110px 1fr"><dt>Endpoint</dt><dd class="mono">http://minio:9000 · Console :9001</dd><dt>Bucket</dt><dd class="mono">agent-artifacts（90 天）· agent-uploads（30 天）</dd><dt>凭据</dt><dd class="mono">credential_ref = minio-service</dd><dt>访问</dt><dd>Worker / API 服务账号；前端仅预签名 URL（10 分钟）</dd><dt>用量</dt><dd>12.4 GB · 38,120 对象 · 今日新增 1.1 GB</dd><dt>自动落存阈值</dt><dd>节点输出 &gt; 64 KB 自动落存；&gt; 512 KB 拒绝（OutputTooLarge）</dd></dl><div class="foot"><button class="btn sm">测试读写</button><button class="btn sm">编辑</button></div></div>
+        </div>
+
+        <!-- 密钥 -->
+        <div class="spane" data-s="cred" style="display:none">
+          <h3 class="sect-title">密钥引用（credential_ref）</h3>
+          <div class="sect-desc">DAG、profile、日志中只出现引用名；值加密存储或指向 Vault，API 只写不读。</div>
+          <div class="card"><table class="tbl"><thead><tr><th>引用名</th><th>类型</th><th>存储</th><th>被引用</th><th>更新</th><th></th></tr></thead><tbody>
+            <tr><td class="mono">erp-readonly</td><td>用户名/密码</td><td>AES-GCM</td><td>erp_dev</td><td>09-01</td><td><button class="btn sm">轮换</button></td></tr>
+            <tr><td class="mono">erp-gw-token</td><td>Bearer</td><td>Vault kv/agent/erp-gw</td><td>erp_api</td><td>09-10</td><td><button class="btn sm">轮换</button></td></tr>
+            <tr><td class="mono">wecom-app-secret</td><td>Secret</td><td>AES-GCM</td><td>wecom-default</td><td>08-22</td><td><button class="btn sm">轮换</button></td></tr>
+            <tr><td class="mono">llm-gw-key</td><td>API Key</td><td>AES-GCM</td><td>default (llm)</td><td>09-15</td><td><button class="btn sm">轮换</button></td></tr>
+            <tr><td class="mono">minio-service</td><td>AK/SK</td><td>AES-GCM</td><td>minio-dev</td><td>08-30</td><td><button class="btn sm">轮换</button></td></tr>
+          </tbody></table></div>
+        </div>
+      </div>
+    </div>
+  </div></main>
+</div>
+<script src="assets/data.js"></script>
+<script src="assets/app.js"></script>
+<script>
+AF.renderShell({ active: 'settings', crumbs: ['企业配置'] });
+document.querySelectorAll('.snav a').forEach(function (a) { a.addEventListener('click', function (e) { e.preventDefault(); document.querySelectorAll('.snav a').forEach(function (x) { x.classList.remove('active'); }); a.classList.add('active'); document.querySelectorAll('.spane').forEach(function (p) { p.style.display = p.dataset.s === a.dataset.s ? '' : 'none'; }); }); });
+var m = /s=(\w+)/.exec(location.hash); if (m) { var a = document.querySelector('.snav a[data-s="' + m[1] + '"]'); if (a) a.click(); }
+</script>
+</body>
+</html>
