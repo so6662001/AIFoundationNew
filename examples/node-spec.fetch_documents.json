@@ -1,0 +1,51 @@
+{
+  "type": "recon.fetch_documents",
+  "version": "1.2.0",
+  "major": 1,
+  "name": "拉取单据",
+  "category": "对账",
+  "icon": "database",
+  "description": "从 ERP / 供应商对账单库拉取指定期间单据，明细落 artifact，只返回引用与汇总",
+  "taskQueue": "nodes-recon",
+  "sideEffect": false,
+  "inputSchema": {
+    "type": "object",
+    "required": ["period", "supplier_id"],
+    "properties": {
+      "period": { "type": "string", "title": "对账期间", "pattern": "^\\d{4}-\\d{2}$" },
+      "supplier_id": { "type": "string", "title": "供应商编码" },
+      "sources": {
+        "type": "array",
+        "title": "数据源",
+        "items": { "type": "string", "enum": ["erp_po", "erp_invoice", "supplier_statement"] },
+        "default": ["erp_po", "supplier_statement"]
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": ["batches", "counts", "total_amount"],
+    "properties": {
+      "batches": { "type": "object", "title": "各数据源 artifact 引用", "additionalProperties": { "type": "string", "pattern": "^ref://artifact/" } },
+      "counts": { "type": "object", "title": "各数据源单据数", "additionalProperties": { "type": "integer" } },
+      "total_amount": { "type": "object", "title": "各数据源金额合计", "additionalProperties": { "type": "number" } }
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "page_size": { "type": "integer", "title": "分页大小", "default": 500, "minimum": 50, "maximum": 5000 },
+      "source_profile": { "type": "string", "title": "数据源配置名", "default": "erp_dev", "description": "Worker 侧解析为连接串，密钥不进 DAG" }
+    }
+  },
+  "uiSchema": { "sources": { "ui:widget": "checkboxes" } },
+  "defaultRetry": { "maximumAttempts": 5, "initialInterval": "PT2S", "backoffCoefficient": 2.0, "maximumInterval": "PT2M", "nonRetryableErrorTypes": ["ValidationError"] },
+  "defaultTimeouts": { "startToClose": "PT10M", "heartbeat": "PT30S" },
+  "maxAllowedAttempts": 10,
+  "outputPreview": ["counts", "total_amount"],
+  "tags": ["erp", "read"],
+  "owner": "recon-team",
+  "docsUrl": "https://wiki.example.local/agent-nodes/recon.fetch_documents",
+  "status": "active",
+  "workers": []
+}

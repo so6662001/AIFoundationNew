@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-foundation.local/schemas/dag.schema.json",
+  "title": "Agent Foundation DAG",
+  "description": "React 画布输出 / 中台校验 / DagWorkflow 输入 三方共用的 DAG JSON 契约 v1.0",
+  "type": "object",
+  "required": ["schemaVersion", "flow", "nodes", "edges"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "string", "pattern": "^1\\.[0-9]+$" },
+    "flow": {
+      "type": "object",
+      "required": ["key", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "version": { "type": ["integer", "null"], "minimum": 1 },
+        "tags": { "type": "array", "items": { "type": "string" }, "maxItems": 20 }
+      }
+    },
+    "variables": { "$ref": "#/$defs/jsonSchemaSubset" },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "taskQueue": { "$ref": "#/$defs/taskQueue" },
+        "runTimeout": { "$ref": "#/$defs/duration" },
+        "defaultRetryPolicy": { "$ref": "#/$defs/retryPolicy" },
+        "defaultTimeouts": { "$ref": "#/$defs/timeouts" },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "softLimitBytes": { "type": "integer", "minimum": 1024, "default": 262144 },
+            "hardLimitBytes": { "type": "integer", "minimum": 1024, "default": 1048576 }
+          }
+        },
+        "onNodeError": { "type": "string", "enum": ["pause", "fail"], "default": "pause" },
+        "templateMissing": { "type": "string", "enum": ["error", "null", "empty"], "default": "error" }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/edge" }
+    },
+    "ui": {
+      "type": "object",
+      "properties": {
+        "viewport": {
+          "type": "object",
+          "properties": { "x": { "type": "number" }, "y": { "type": "number" }, "zoom": { "type": "number" } }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,63}$" },
+    "handle": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$" },
+    "taskQueue": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+    "duration": {
+      "type": "string",
+      "description": "ISO-8601 Duration，如 PT30S / PT5M / P3D",
+      "pattern": "^P(?!$)(\\d+Y)?(\\d+M)?(\\d+W)?(\\d+D)?(T(?=\\d)(\\d+H)?(\\d+M)?(\\d+(\\.\\d+)?S)?)?$"
+    },
+    "nodeTypeRef": {
+      "type": "string",
+      "description": "注册中心节点类型引用：<namespace>.<name>@<majorVersion>",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+@[0-9]+$"
+    },
+    "template": {
+      "description": "任意 JSON 值；字符串中可包含 {{input.x}} / {{context.x}} / {{nodes.<id>.output.x}} / {{run.x}} 占位符",
+      "type": ["string", "number", "boolean", "null", "object", "array"]
+    },
+    "position": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+    },
+    "retryPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maximumAttempts": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "initialInterval": { "$ref": "#/$defs/duration" },
+        "backoffCoefficient": { "type": "number", "minimum": 1.0, "maximum": 10.0 },
+        "maximumInterval": { "$ref": "#/$defs/duration" },
+        "nonRetryableErrorTypes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "timeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "startToClose": { "$ref": "#/$defs/duration" },
+        "scheduleToClose": { "$ref": "#/$defs/duration" },
+        "scheduleToStart": { "$ref": "#/$defs/duration" },
+        "heartbeat": { "$ref": "#/$defs/duration" }
+      }
+    },
+    "onError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action"],
+      "properties": {
+        "action": { "type": "string", "enum": ["pause", "fail", "skip", "route"] },
+        "skipOutput": {},
+        "routeEdgeId": { "type": ["string", "null"] }
+      }
+    },
+    "jsonSchemaSubset": {
+      "type": "object",
+      "description": "受限 JSON Schema：仅允许基础字段，避免复杂关键字",
+      "properties": {
+        "type": { "type": "string", "enum": ["object", "string", "number", "integer", "boolean", "array"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "default": {},
+        "enum": { "type": "array" },
+        "pattern": { "type": "string" },
+        "minimum": { "type": "number" },
+        "maximum": { "type": "number" },
+        "required": { "type": "array", "items": { "type": "string" } },
+        "items": { "$ref": "#/$defs/jsonSchemaSubset" },
+        "properties": { "type": "object", "additionalProperties": { "$ref": "#/$defs/jsonSchemaSubset" } }
+      },
+      "additionalProperties": false
+    },
+    "ruleExpr": {
+      "oneOf": [
+        { "type": "object", "required": ["all"], "additionalProperties": false,
+          "properties": { "all": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ruleExpr" } } } },
+        { "type": "object", "required": ["any"], "additionalProperties": false,
+          "properties": { "any": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ruleExpr" } } } },
+        { "type": "object", "required": ["not"], "additionalProperties": false,
+          "properties": { "not": { "$ref": "#/$defs/ruleExpr" } } },
+        { "type": "object", "required": ["left", "op"], "additionalProperties": false,
+          "properties": {
+            "left": { "$ref": "#/$defs/template" },
+            "op": { "type": "string", "enum": ["eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in", "contains", "starts_with", "ends_with", "is_null", "not_null", "is_true", "is_false", "matches"] },
+            "right": { "$ref": "#/$defs/template" }
+          } },
+        { "type": "object", "required": ["expr"], "additionalProperties": false,
+          "properties": { "expr": { "type": "string", "maxLength": 2000 } } }
+      ]
+    },
+    "nodeBase": {
+      "type": "object",
+      "required": ["id", "kind", "name", "position"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "kind": { "type": "string", "enum": ["start", "end", "task", "branch", "approval", "subflow", "assign", "parallel", "join"] },
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "position": { "$ref": "#/$defs/position" },
+        "outputKey": { "$ref": "#/$defs/identifier" },
+        "breakpoint": { "type": "boolean", "default": false },
+        "ui": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "node": {
+      "allOf": [
+        { "$ref": "#/$defs/nodeBase" },
+        {
+          "oneOf": [
+            { "$ref": "#/$defs/startNode" },
+            { "$ref": "#/$defs/endNode" },
+            { "$ref": "#/$defs/taskNode" },
+            { "$ref": "#/$defs/branchNode" },
+            { "$ref": "#/$defs/approvalNode" },
+            { "$ref": "#/$defs/subflowNode" },
+            { "$ref": "#/$defs/assignNode" },
+            { "$ref": "#/$defs/parallelNode" },
+            { "$ref": "#/$defs/joinNode" }
+          ]
+        }
+      ]
+    },
+    "startNode": {
+      "type": "object",
+      "properties": { "kind": { "const": "start" } },
+      "required": ["kind"]
+    },
+    "endNode": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "end" },
+        "status": { "type": "string", "enum": ["success", "failed"], "default": "success" },
+        "outputs": { "type": "object", "additionalProperties": { "$ref": "#/$defs/template" } }
+      },
+      "required": ["kind"]
+    },
+    "taskNode": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "task" },
+        "nodeType": { "$ref": "#/$defs/nodeTypeRef" },
+        "inputs": { "type": "object", "additionalProperties": { "$ref": "#/$defs/template" } },
+        "config": { "type": "object" },
+        "taskQueue": { "$ref": "#/$defs/taskQueue" },
+        "retryPolicy": { "$ref": "#/$defs/retryPolicy" },
+        "timeouts": { "$ref": "#/$defs/timeouts" },
+        "onError": { "$ref": "#/$defs/onError" }
+      },
+      "required": ["kind", "nodeType"]
+    },
+    "branchNode": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "branch" },
+        "cases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "when"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "$ref": "#/$defs/handle" },
+              "label": { "type": "string" },
+              "when": { "$ref": "#/$defs/ruleExpr" }
+            }
+          }
+        },
+        "default": { "$ref": "#/$defs/handle" },
+        "evaluation": { "type": "string", "enum": ["first_match", "all_match"], "default": "first_match" }
+      },
+      "required": ["kind", "cases", "default"]
+    },
+    "approvalNode": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "approval" },
+        "assignees": {
+          "type": "object",
+          "properties": {
+            "roles": { "type": "array", "items": { "type": "string" } },
+            "users": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "title": { "type": "string" },
+        "summary": { "type": "string" },
+        "attachments": { "type": "array", "items": { "type": "string" } },
+        "formSchema": { "$ref": "#/$defs/jsonSchemaSubset" },
+        "timeout": { "$ref": "#/$defs/duration" },
+        "onTimeout": { "type": "string", "enum": ["route", "fail", "approve", "reject"], "default": "route" },
+        "reminder": {
+          "type": "object",
+          "properties": { "every": { "$ref": "#/$defs/duration" }, "channel": { "type": "string" } }
+        }
+      },
+      "required": ["kind", "title"]
+    },
+    "subflowNode": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "subflow" },
+        "flowKey": { "type": "string" },
+        "flowVersion": { "oneOf": [{ "const": "published" }, { "type": "integer", "minimum": 1 }] },
+        "inputs": { "type": "object", "additionalProperties": { "$ref": "#/$defs/template" } },
+        "parentClosePolicy": { "type": "string", "enum": ["terminate", "abandon", "request_cancel"], "default": "terminate" },
+        "timeouts": { "$ref": "#/$defs/timeouts" }
+      },
+      "required": ["kind", "flowKey", "flowVersion"]
+    },
+    "assignNode": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "assign" },
+        "assignments": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["target", "value"],
+            "additionalProperties": false,
+            "properties": {
+              "target": { "type": "string", "pattern": "^context\\.[a-zA-Z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_]*)*$" },
+              "value": { "$ref": "#/$defs/template" }
+            }
+          }
+        }
+      },
+      "required": ["kind", "assignments"]
+    },
+    "parallelNode": {
+      "type": "object",
+      "properties": { "kind": { "const": "parallel" } },
+      "required": ["kind"]
+    },
+    "joinNode": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "join" },
+        "strategy": { "type": "string", "enum": ["all", "any"], "default": "all" }
+      },
+      "required": ["kind"]
+    },
+    "edge": {
+      "type": "object",
+      "required": ["id", "source", "target"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "source": { "$ref": "#/$defs/identifier" },
+        "sourceHandle": { "$ref": "#/$defs/handle" },
+        "target": { "$ref": "#/$defs/identifier" },
+        "targetHandle": { "$ref": "#/$defs/handle" },
+        "label": { "type": "string" },
+        "ui": { "type": "object", "additionalProperties": true }
+      }
+    }
+  }
+}
