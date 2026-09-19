@@ -26,7 +26,7 @@
   <main class="main" style="display:flex;flex-direction:column;overflow:hidden">
     <div class="toolbar editor-toolbar">
       <span class="title" id="flowTitle">采购月度对账</span>
-      <span class="tag orange">草稿 v4</span><span class="ver">基于 v3（当前发布）· 最后保存 13:42 · alice</span>
+      <span class="tag orange" id="verTag">草稿 v4</span><span class="ver" id="verNote">基于 v3（当前发布）· 最后保存 13:42 · alice</span>
       <div class="flowswitch" style="margin-left:12px"><button class="on" data-flow="demo">单供应商 Demo</button><button data-flow="foreach">全部供应商 · for-each</button></div>
       <span class="spacer"></span>
       <button class="btn" id="btnValidate">校验</button>
@@ -280,6 +280,9 @@ document.querySelectorAll('.flowswitch [data-flow]').forEach(function (b) {
     var src = b.dataset.flow === 'foreach' ? AF.dagForeach : AF.dagDemo;
     dag = JSON.parse(JSON.stringify(src)); canvas.dag = dag; canvas.selected = null; canvas.fit(); canvas.render(); renderInspector(null); validate();
     document.getElementById('flowTitle').textContent = dag.flow.name;
+    var fe = b.dataset.flow === 'foreach';
+    document.getElementById('verTag').textContent = fe ? '草稿 v2' : '草稿 v4';
+    document.getElementById('verNote').textContent = fe ? '基于 v1（当前发布）· 循环体锁定 recon.purchase_monthly v3 · 最后保存 昨天 18:05' : '基于 v3（当前发布）· 最后保存 13:42 · alice';
   });
 });
 
