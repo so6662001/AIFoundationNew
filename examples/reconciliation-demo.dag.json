@@ -114,7 +114,13 @@
       "kind": "approval",
       "name": "运营确认大额差异",
       "position": { "x": 1240, "y": 60 },
-      "assignees": { "roles": ["recon_ops"], "users": [] },
+      "assignees": {
+        "roles": ["recon_ops"],
+        "departments": [{ "id": "D-FIN-AP", "includeChildren": false }],
+        "users": [],
+        "dynamic": ["manager_of_initiator"],
+        "strategy": "any"
+      },
       "title": "供应商 {{input.supplier_id}} {{input.period}} 对账差异确认",
       "summary": "差异 {{context.diff.count}} 笔，差异金额合计 {{context.diff.total_abs_amount}} 元（阈值 {{input.threshold}}）。分类：{{context.classified.categories}}",
       "attachments": ["{{context.diff.detail_ref}}"],

@@ -8,6 +8,8 @@
   "description": "从 ERP / 供应商对账单库拉取指定期间单据，明细落 artifact，只返回引用与汇总",
   "taskQueue": "nodes-recon",
   "sideEffect": false,
+  "language": "java",
+  "supportsForeachItem": true,
   "inputSchema": {
     "type": "object",
     "required": ["period", "supplier_id"],
@@ -28,7 +30,7 @@
     "properties": {
       "batches": { "type": "object", "title": "各数据源 artifact 引用", "additionalProperties": { "type": "string", "pattern": "^ref://artifact/" } },
       "counts": { "type": "object", "title": "各数据源单据数", "additionalProperties": { "type": "integer" } },
-      "total_amount": { "type": "object", "title": "各数据源金额合计", "additionalProperties": { "type": "number" } }
+      "total_amount": { "type": "object", "title": "各数据源金额合计(元, 十进制字符串)", "additionalProperties": { "type": "string", "pattern": "^-?\\d+(\\.\\d+)?$" } }
     }
   },
   "configSchema": {

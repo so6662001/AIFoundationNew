@@ -16,6 +16,8 @@
     "description": { "type": "string", "maxLength": 2000 },
     "taskQueue": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
     "sideEffect": { "type": "boolean", "default": false, "description": "true 表示会写外部系统，必须实现幂等" },
+    "language": { "type": "string", "enum": ["java", "python"], "default": "java" },
+    "supportsForeachItem": { "type": "boolean", "default": true },
     "inputSchema": { "type": "object" },
     "outputSchema": { "type": "object" },
     "configSchema": { "type": "object" },

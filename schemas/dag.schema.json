@@ -156,7 +156,7 @@
       "required": ["id", "kind", "name", "position"],
       "properties": {
         "id": { "$ref": "#/$defs/identifier" },
-        "kind": { "type": "string", "enum": ["start", "end", "task", "branch", "approval", "subflow", "assign", "parallel", "join"] },
+        "kind": { "type": "string", "enum": ["start", "end", "task", "branch", "approval", "subflow", "assign", "foreach", "parallel", "join"] },
         "name": { "type": "string", "minLength": 1, "maxLength": 128 },
         "description": { "type": "string", "maxLength": 2000 },
         "position": { "$ref": "#/$defs/position" },
@@ -177,6 +177,7 @@
             { "$ref": "#/$defs/approvalNode" },
             { "$ref": "#/$defs/subflowNode" },
             { "$ref": "#/$defs/assignNode" },
+            { "$ref": "#/$defs/foreachNode" },
             { "$ref": "#/$defs/parallelNode" },
             { "$ref": "#/$defs/joinNode" }
           ]
@@ -240,9 +241,25 @@
         "kind": { "const": "approval" },
         "assignees": {
           "type": "object",
+          "additionalProperties": false,
           "properties": {
             "roles": { "type": "array", "items": { "type": "string" } },
-            "users": { "type": "array", "items": { "type": "string" } }
+            "departments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id"],
+                "additionalProperties": false,
+                "properties": { "id": { "type": "string" }, "includeChildren": { "type": "boolean", "default": false } }
+              }
+            },
+            "users": { "type": "array", "items": { "type": "string" } },
+            "dynamic": {
+              "type": "array",
+              "description": "manager_of_initiator | manager_of:<userId> | 模板表达式（渲染为用户 ID 或 ID 数组）",
+              "items": { "type": "string" }
+            },
+            "strategy": { "type": "string", "pattern": "^(any|all|quorum\\([1-9][0-9]*\\))$", "default": "any" }
           }
         },
         "title": { "type": "string" },
@@ -289,6 +306,59 @@
         }
       },
       "required": ["kind", "assignments"]
+    },
+    "foreachNode": {
+      "type": "object",
+      "properties": {
+        "kind": { "const": "foreach" },
+        "items": { "type": "string", "pattern": "^\\{\\{\\s*(input|context|nodes)\\.[^}]+\\}\\}$", "description": "必须是单占位符模板，渲染后为数组" },
+        "itemAlias": { "$ref": "#/$defs/identifier" },
+        "concurrency": { "type": "integer", "minimum": 1, "maximum": 50, "default": 1 },
+        "maxItems": { "type": "integer", "minimum": 1, "maximum": 100000, "default": 1000 },
+        "batchSize": { "type": "integer", "minimum": 1, "maximum": 5000, "default": 200 },
+        "body": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["type", "nodeType"],
+              "additionalProperties": false,
+              "properties": {
+                "type": { "const": "task" },
+                "nodeType": { "$ref": "#/$defs/nodeTypeRef" },
+                "inputs": { "type": "object", "additionalProperties": { "$ref": "#/$defs/template" } },
+                "config": { "type": "object" },
+                "taskQueue": { "$ref": "#/$defs/taskQueue" },
+                "retryPolicy": { "$ref": "#/$defs/retryPolicy" },
+                "timeouts": { "$ref": "#/$defs/timeouts" }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["type", "flowKey", "flowVersion"],
+              "additionalProperties": false,
+              "properties": {
+                "type": { "const": "subflow" },
+                "flowKey": { "type": "string" },
+                "flowVersion": { "oneOf": [{ "const": "published" }, { "type": "integer", "minimum": 1 }] },
+                "inputs": { "type": "object", "additionalProperties": { "$ref": "#/$defs/template" } },
+                "timeouts": { "$ref": "#/$defs/timeouts" }
+              }
+            }
+          ]
+        },
+        "onItemError": { "type": "string", "enum": ["continue", "fail_fast"], "default": "continue" },
+        "collect": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": { "type": "string", "enum": ["list", "count", "none"], "default": "list" },
+            "fields": { "type": "array", "items": { "type": "string" } },
+            "outputKey": { "$ref": "#/$defs/identifier" }
+          }
+        },
+        "onError": { "$ref": "#/$defs/onError" }
+      },
+      "required": ["kind", "items", "body"]
     },
     "parallelNode": {
       "type": "object",

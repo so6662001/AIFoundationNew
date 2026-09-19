@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "1.0",
+  "flow": {
+    "key": "recon.purchase_monthly_all_suppliers",
+    "name": "采购月度对账 · 全部供应商（for-each Demo）",
+    "description": "列出本期有交易的供应商 -> 按供应商并发执行单供应商对账子流程 -> 汇总报告",
+    "version": null,
+    "tags": ["对账", "采购", "foreach"]
+  },
+  "variables": {
+    "type": "object",
+    "required": ["period"],
+    "properties": {
+      "period": { "type": "string", "title": "对账期间", "pattern": "^\\d{4}-\\d{2}$", "default": "2026-08" },
+      "threshold": { "type": "number", "title": "大额差异阈值(元)", "default": 10000, "minimum": 0 }
+    }
+  },
+  "settings": {
+    "taskQueue": "nodes-recon",
+    "runTimeout": "P14D",
+    "onNodeError": "pause"
+  },
+  "nodes": [
+    { "id": "start", "kind": "start", "name": "开始", "position": { "x": 40, "y": 200 } },
+    {
+      "id": "list_suppliers",
+      "kind": "task",
+      "name": "列出本期供应商",
+      "description": "只返回供应商编码列表（小数据），不返回单据",
+      "position": { "x": 260, "y": 200 },
+      "nodeType": "recon.list_suppliers@1",
+      "inputs": { "period": "{{input.period}}" },
+      "config": { "source_profile": "erp_dev" },
+      "outputKey": "suppliers"
+    },
+    {
+      "id": "per_supplier",
+      "kind": "foreach",
+      "name": "按供应商逐个对账",
+      "position": { "x": 520, "y": 200 },
+      "items": "{{context.suppliers.ids}}",
+      "itemAlias": "supplier",
+      "concurrency": 5,
+      "maxItems": 1000,
+      "batchSize": 200,
+      "body": {
+        "type": "subflow",
+        "flowKey": "recon.purchase_monthly",
+        "flowVersion": "published",
+        "inputs": { "supplier_id": "{{supplier}}", "period": "{{input.period}}", "threshold": "{{input.threshold}}" }
+      },
+      "onItemError": "continue",
+      "collect": { "mode": "list", "fields": ["diff_count", "decision", "report_ref"], "outputKey": "supplier_results" },
+      "onError": { "action": "pause" }
+    },
+    {
+      "id": "summary_report",
+      "kind": "task",
+      "name": "生成汇总报告",
+      "position": { "x": 800, "y": 200 },
+      "nodeType": "recon.generate_summary_report@1",
+      "inputs": { "period": "{{input.period}}", "results": "{{context.supplier_results}}" },
+      "config": { "format": "xlsx" },
+      "outputKey": "summary"
+    },
+    {
+      "id": "end_ok",
+      "kind": "end",
+      "name": "完成",
+      "position": { "x": 1040, "y": 200 },
+      "status": "success",
+      "outputs": { "summary_ref": "{{context.summary.ref}}", "suppliers_total": "{{context.supplier_results.total}}", "suppliers_failed": "{{context.supplier_results.failed}}" }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "start", "sourceHandle": "out", "target": "list_suppliers", "targetHandle": "in" },
+    { "id": "e2", "source": "list_suppliers", "sourceHandle": "out", "target": "per_supplier", "targetHandle": "in" },
+    { "id": "e3", "source": "per_supplier", "sourceHandle": "out", "target": "summary_report", "targetHandle": "in" },
+    { "id": "e4", "source": "summary_report", "sourceHandle": "out", "target": "end_ok", "targetHandle": "in" }
+  ],
+  "ui": { "viewport": { "x": 0, "y": 0, "zoom": 1 } }
+}

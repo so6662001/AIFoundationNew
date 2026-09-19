@@ -71,7 +71,7 @@ DAG JSON 是三方共同遵守的唯一契约：
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | `id` | string | MUST | 节点唯一 ID，`^[a-zA-Z][a-zA-Z0-9_]{0,63}$`；同时是 `{{nodes.<id>.output}}` 的引用键。**画布生成后不可变** |
-| `kind` | enum | MUST | `start` / `end` / `task` / `branch` / `approval` / `subflow` / `assign` / `parallel` / `join` |
+| `kind` | enum | MUST | `start` / `end` / `task` / `branch` / `approval` / `subflow` / `assign` / `foreach` / `parallel` / `join` |
 | `name` | string | MUST | 显示名 |
 | `description` | string | MAY | |
 | `position` | `{x,y}` | MUST | 画布坐标（引擎忽略） |
@@ -172,7 +172,13 @@ Value     := JSON 字面量 | 模板字符串（单占位符时保留原类型�
   "kind": "approval",
   "name": "运营确认大额差异",
   "position": { "x": 980, "y": 40 },
-  "assignees": { "roles": ["recon_ops"], "users": [] },
+  "assignees": {                                            // 审批人来自组织架构（决策 4），多来源取并集
+    "roles": ["recon_ops"],                                 // 角色（同步自 IdP / 平台定义）
+    "departments": [{ "id": "D-FIN-AP", "includeChildren": false }],   // 部门（成员均可审批）
+    "users": ["u_10023"],                                   // 指定人
+    "dynamic": ["manager_of_initiator", "{{input.owner_user_id}}"],    // 动态：发起人上级 / 上下文中的用户 ID
+    "strategy": "any"                                       // any：任一人通过即通过 | all：全部通过 | quorum(n)
+  },
   "title": "供应商 {{input.supplier_id}} {{input.period}} 对账差异确认",
   "summary": "差异 {{context.diff.count}} 笔，金额 {{context.diff.total_abs_amount}} 元；明细见附件",
   "attachments": ["{{context.diff.detail_ref}}"],          // artifact 引用，前端可预览
@@ -188,7 +194,8 @@ Value     := JSON 字面量 | 模板字符串（单占位符时保留原类型�
 ```
 
 - 出边 `sourceHandle` MUST 为 `approved` / `rejected`，`onTimeout=route` 时还需 `timeout`。
-- 输出：`{ "decision": "approved|rejected|timeout", "operator": "...", "comment": "...", "form": {...}, "decided_at": "..." }`。
+- `assignees` 在**运行时由 platform-api 解析为用户集合**（Workflow 只持有表达式并等待 Signal；解析属于 IO，在 API 侧完成），审批动作校验操作人属于该集合；`strategy=all/quorum` 时 Workflow 累计多个 `approve` Signal 后再出边。
+- 输出：`{ "decision": "approved|rejected|timeout", "operator": "...", "operators": [...], "comment": "...", "form": {...}, "decided_at": "..." }`。
 
 ### 2.5 `subflow`（子流程，Child Workflow）
 
@@ -223,12 +230,50 @@ Value     := JSON 字面量 | 模板字符串（单占位符时保留原类型�
 }
 ```
 
-### 2.7 `parallel` / `join`（静态并行分叉与汇合）
+### 2.7 `foreach`（动态循环，阶段 2）
+
+对上下文中的**数组**逐项执行循环体。循环体是一个 `task`（单节点）或一个 `subflow`（子流程，Child Workflow）。
+
+```jsonc
+{
+  "id": "per_supplier",
+  "kind": "foreach",
+  "name": "按供应商逐个对账",
+  "position": { "x": 500, "y": 200 },
+  "items": "{{context.suppliers.ids}}",          // MUST：渲染后必须是数组；建议只放 ID / 小对象
+  "itemAlias": "supplier",                        // 循环体内以 {{item}} 或 {{supplier}} 引用当前元素；{{loop.index}} 为下标
+  "concurrency": 5,                               // 并发上限（默认 1 = 串行）
+  "maxItems": 1000,                               // 超过则编译/运行期拒绝（坑 3 防线）
+  "batchSize": 200,                               // 每处理 batchSize 个 item 后 continue-as-new（History 防线）
+  "body": {
+    "type": "subflow",                            // task | subflow
+    "flowKey": "recon.single_supplier",
+    "flowVersion": "published",
+    "inputs": { "supplier_id": "{{item}}", "period": "{{input.period}}", "threshold": "{{input.threshold}}" }
+    // type=task 时：{ "type": "task", "nodeType": "recon.match_and_diff@1", "inputs": {...}, "config": {...}, "retryPolicy": {...}, "timeouts": {...} }
+  },
+  "onItemError": "continue",                      // continue（记录失败，继续其他 item）| fail_fast（取消其余，节点失败进入 onError）
+  "collect": {
+    "mode": "list",                               // list：每个 item 的输出组成数组 | count：只统计 | none：不写回
+    "fields": ["diff_count", "total_abs_amount", "report_ref"],   // list 模式下只收集这些字段（防上下文膨胀）
+    "outputKey": "supplier_results"
+  },
+  "onError": { "action": "pause" }
+}
+```
+
+- 输出结构：`{ total, succeeded, failed, items: [ { index, item, status, output(仅 collect.fields), error } ] }`。`collect.mode=list` 时若累计大小超过 64 KB，Workflow 侧只保留 `count` 并把完整结果交给 Local Activity 落 artifact，写入 `items_ref`。
+- 循环体内模板作用域新增：`{{item}}` / `{{<itemAlias>}}`、`{{loop.index}}`、`{{loop.total}}`；仍可访问 `input` / `context`（只读快照，循环体不得写父上下文，避免并发写冲突）。
+- 出边：`out`（全部 item 处理完毕，含 `continue` 模式下的部分失败）；`onError.action=route` 时 `error`。
+- 画布上表现为一个可展开的容器节点，内部显示循环体（单任务卡片或子流程引用）。
+- 校验：`items` 只能引用 `input` / `context` / 前驱节点输出；`body.type=subflow` 时子流程必须存在已发布版本；`concurrency ≤ 50`。
+
+### 2.8 `parallel` / `join`（静态并行分叉与汇合）
 
 - `parallel` 节点 MAY 有多条出边，全部同时启动；`join` 节点等待所有入边完成（`strategy: all | any`）。
 - 实际上引擎按拓扑天然支持"一个节点多条出边即并行"，`parallel/join` 主要用于画布语义清晰与 `join.strategy=any` 场景。
 
-### 2.8 `start` / `end`
+### 2.9 `start` / `end`
 
 - 恰好一个 `start`（无入边），至少一个 `end`。
 - `end` MAY 声明 `outputs`（模板），作为 Workflow 返回值与开放 API 回调载荷：
@@ -260,7 +305,7 @@ Value     := JSON 字面量 | 模板字符串（单占位符时保留原类型�
 - `source` / `target` MUST 指向存在的节点；`start` 无入边，`end` 无出边。
 - `branch` 的每个 `case.id` 与 `default` MUST 各有且仅有一条出边（`evaluation=first_match`）。
 - `approval` MUST 有 `approved` 与 `rejected` 出边。
-- 图 MUST 无环（阶段 1/2 不支持循环；循环在阶段 3 以 `loop` 节点 + `continue_as_new` 引入）。
+- 图 MUST 无环（动态循环由 `foreach` 节点承担，DAG 本身保持无环；`while` 型循环不在阶段 1/2 范围）。
 - `task` 节点 `onError.action=route` 时，`routeEdgeId` 指向的出边 `sourceHandle` MUST 为 `error`。
 
 ---
@@ -272,7 +317,8 @@ Value     := JSON 字面量 | 模板字符串（单占位符时保留原类型�
 | `{{input.<path>}}` | 流程输入 | `{{input.period}}` |
 | `{{context.<path>}}` | 上下文（各节点按 `outputKey` 写入） | `{{context.diff.total_abs_amount}}` |
 | `{{nodes.<nodeId>.output.<path>}}` | 按节点 ID 直接引用输出（等价于 outputKey） | `{{nodes.fetch_docs.output.batch_id}}` |
-| `{{run.id}}` / `{{run.flowKey}}` / `{{run.version}}` / `{{run.startedAt}}` | 运行元信息（`startedAt` 来自 `workflow.now()`，确定性） | |
+| `{{run.id}}` / `{{run.flowKey}}` / `{{run.version}}` / `{{run.startedAt}}` | 运行元信息（`startedAt` 来自 `Workflow.currentTimeMillis()`，确定性） | |
+| `{{item}}` / `{{<itemAlias>}}` / `{{loop.index}}` / `{{loop.total}}` | 仅 `foreach` 循环体内有效 | `{{supplier}}` |
 | `{{secrets.<name>}}` | **不允许**在 DAG 中出现；密钥只在 Activity 侧按 `config.credentialRef` 解析 | |
 
 规则：
@@ -292,7 +338,8 @@ Value     := JSON 字面量 | 模板字符串（单占位符时保留原类型�
 | error | Schema 不通过；节点 ID 重复 / 非法；边引用不存在节点；存在环；不止一个 `start`；无 `end` |
 | error | 存在不可达节点（从 `start` 出发）；存在无法到达任何 `end` 的节点 |
 | error | `branch` 缺 `default` 或某 `case`/`default` 没有唯一出边；规则引用了非法运算符或非 `input/context/nodes/run` 作用域 |
-| error | `approval` 缺 `approved`/`rejected` 出边 |
+| error | `approval` 缺 `approved`/`rejected` 出边；`assignees` 为空或引用不存在的角色 / 部门 |
+| error | `foreach.items` 不是数组表达式；`body.type=subflow` 的子流程无已发布版本；`concurrency` > 50；循环体模板写父 `context` |
 | error | `task.nodeType` 不存在 / 已废弃 / 主版本不匹配；`inputs` 缺少 `inputSchema.required` 字段 |
 | error | 模板引用了在拓扑上**不可能先于当前节点完成**的节点输出 |
 | warning | 未连接的节点；`task` 无 `outputKey`；重试次数 > 10；审批无超时 |

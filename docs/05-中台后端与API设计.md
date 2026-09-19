@@ -1,23 +1,25 @@
-# 中台后端设计（platform-api）：数据模型 · REST/SSE API · 版本管理 · 事件推送 · 开放 API · 度量
+# 中台后端设计（platform-api · Java）：数据模型 · REST/SSE API · 版本管理 · 事件推送 · 身份与组织架构 · 通知中心 · 开放 API · 度量
 
-> 应用：`apps/platform-api`（Python 3.11 / FastAPI / SQLAlchemy 2 + Alembic / `temporalio` Client / Redis）。所有接口前缀 `/api/v1`，开放 API 前缀 `/open/v1`。
+> 应用：`apps/platform-api`（Java 17 / Spring Boot 3 / Spring Data JPA + Flyway / Temporal Java SDK `WorkflowClient` / Lettuce Redis / MinIO S3 SDK / Spring Security OAuth2 Resource Server / Micrometer）。所有接口前缀 `/api/v1`，开放 API 前缀 `/open/v1`。
 
 ---
 
-## 1. 模块划分
+## 1. 模块划分（Maven 多模块或单体分包）
 
 | 模块 | 职责 |
 |---|---|
 | `flows` | 流程与版本 CRUD、草稿保存、发布、回滚、Diff |
-| `compiler` | DAG Schema 校验 + 语义校验 + 编译 `ExecutionPlan`（调用 `dag_core`） |
-| `registry` | 节点类型注册 / 查询 / 废弃；Worker 心跳；兼容性检查 |
+| `compiler` | DAG Schema 校验 + 语义校验 + 编译 `ExecutionPlan`（调用 `dag-core-java`；子 Plan 内嵌） |
+| `registry` | 节点类型注册 / 查询 / 废弃；Worker 心跳；兼容性检查；语言标记 |
 | `runs` | 启动运行、Signal（审批 / 手工动作 / 断点 / 取消）、Query、运行列表与详情 |
-| `events` | Redis Stream 消费 → 投影到 `run_nodes` / `run_events` → SSE fan-out → 告警触发 |
-| `approvals` | 待办列表、审批动作、提醒（消费 `approval.*` 事件） |
-| `artifacts` | 大对象上传 / 下载 / 预览（开发期 PG，生产 MinIO/S3） |
-| `metrics` | 节点耗时 / 失败率 / 审批时长聚合；Prometheus `/metrics` |
+| `events` | Redis Stream 消费（`projector`）→ 投影到 `run_nodes` / `run_events` / `run_node_items` → SSE fan-out → 告警与通知触发 |
+| `approvals` | 待办列表、审批人解析（消费 `approval.requested`）、审批动作校验、提醒 |
+| `identity` | OIDC 资源服务器；`IdentityProvider` SPI 同步部门 / 用户 / 角色；权限（RBAC）；审批人表达式解析 |
+| `notifications` | `NotificationChannel` SPI（wecom / dingtalk / feishu / email / webhook）；通道配置；模板；告警路由；发送记录 |
+| `profiles` | 企业配置项：ERP 数据源 profile（jdbc / http / file）、LLM profile、对象存储；连通性测试、字段映射预览 |
+| `artifacts` | 大对象元数据 + MinIO 预签名上传 / 下载 / 预览 |
+| `metrics` | 节点耗时 / 失败率 / 审批时长聚合；Micrometer → Prometheus `/actuator/prometheus` |
 | `open` | API Key 鉴权、幂等启动、Webhook 回调 |
-| `auth` | 阶段 1 简化：本地用户 + 角色（admin / editor / operator / viewer）；阶段 2 预留 OIDC/SSO 适配 |
 
 ## 2. 数据模型（PostgreSQL，库 `platform`）
 
@@ -58,6 +60,7 @@ CREATE TABLE node_types (
   major         INT  NOT NULL,
   version       TEXT NOT NULL,                    -- 1.2.0（该 major 下最新）
   spec          JSONB NOT NULL,                   -- NodeSpec
+  language      TEXT NOT NULL DEFAULT 'java',     -- java | python
   status        TEXT NOT NULL DEFAULT 'active',   -- active | deprecated | disabled
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (type, major)
@@ -107,6 +110,18 @@ CREATE TABLE run_nodes (
   PRIMARY KEY (run_id, node_id)
 );
 
+CREATE TABLE run_node_items (                     -- foreach 的每个 item
+  run_id        UUID NOT NULL,
+  node_id       TEXT NOT NULL,
+  item_index    INT  NOT NULL,
+  item_preview  JSONB,
+  status        TEXT NOT NULL,
+  child_workflow_id TEXT,                         -- body=subflow 时
+  output_preview JSONB, error JSONB,
+  started_at TIMESTAMPTZ, finished_at TIMESTAMPTZ, duration_ms BIGINT,
+  PRIMARY KEY (run_id, node_id, item_index)
+);
+
 CREATE TABLE run_events (
   id            BIGSERIAL PRIMARY KEY,
   event_id      TEXT UNIQUE NOT NULL,             -- ULID（幂等）
@@ -127,23 +142,80 @@ CREATE TABLE approvals (
   node_id       TEXT NOT NULL,
   status        TEXT NOT NULL,                    -- pending | approved | rejected | timeout | cancelled
   title TEXT, summary TEXT, attachments JSONB, form_schema JSONB,
-  assignee_roles TEXT[], assignee_users TEXT[],
+  assignees_expr JSONB NOT NULL,                  -- DAG 中的 assignees 表达式
+  resolved_user_ids TEXT[] NOT NULL,              -- 解析后的审批人集合（快照）
+  strategy      TEXT NOT NULL DEFAULT 'any',
   requested_at  TIMESTAMPTZ NOT NULL, due_at TIMESTAMPTZ,
   decided_at    TIMESTAMPTZ, operator TEXT, comment TEXT, form JSONB,
   UNIQUE (run_id, node_id)
 );
+CREATE TABLE approval_decisions (                 -- all / quorum 策略下的多人决策明细
+  approval_id UUID REFERENCES approvals(id), user_id TEXT, decision TEXT, comment TEXT, form JSONB, decided_at TIMESTAMPTZ,
+  PRIMARY KEY (approval_id, user_id)
+);
 
-CREATE TABLE artifacts (
+CREATE TABLE artifacts (                          -- 数据在 MinIO，此表只存元数据
   id            UUID PRIMARY KEY,
-  run_id        UUID, node_id TEXT,
+  run_id        UUID, node_id TEXT, item_index INT,
   kind          TEXT,                             -- documents.erp_po / diff.detail / report.xlsx
   content_type  TEXT NOT NULL,
   size_bytes    BIGINT NOT NULL,
-  storage       TEXT NOT NULL,                    -- pg | s3
-  inline        BYTEA,                            -- storage=pg
-  uri           TEXT,                             -- storage=s3
+  bucket        TEXT NOT NULL,                    -- agent-artifacts
+  object_key    TEXT NOT NULL,                    -- runs/<run_id>/<node_id>/<uuid>
+  checksum      TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at    TIMESTAMPTZ
+);
+
+-- 身份与组织架构（由 IdentityProvider 同步，平台只读 + 角色映射可编辑）
+CREATE TABLE departments (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, parent_id TEXT, path TEXT NOT NULL,   -- path: /D-ROOT/D-FIN/D-FIN-AP
+  leader_user_id TEXT, source TEXT NOT NULL, synced_at TIMESTAMPTZ
+);
+CREATE TABLE users (
+  id TEXT PRIMARY KEY, username TEXT UNIQUE, display_name TEXT, email TEXT, mobile TEXT,
+  external_id TEXT, source TEXT NOT NULL,                                       -- oidc subject / 企业微信 userid
+  manager_user_id TEXT, status TEXT NOT NULL DEFAULT 'active', synced_at TIMESTAMPTZ
+);
+CREATE TABLE user_departments (user_id TEXT, department_id TEXT, is_primary BOOLEAN, PRIMARY KEY (user_id, department_id));
+CREATE TABLE roles (key TEXT PRIMARY KEY, name TEXT, description TEXT, source TEXT);  -- platform | idp
+CREATE TABLE user_roles (user_id TEXT, role_key TEXT, PRIMARY KEY (user_id, role_key));
+CREATE TABLE role_mappings (idp_group TEXT PRIMARY KEY, role_key TEXT NOT NULL);       -- IdP 组 → 平台角色
+
+-- 通知中心
+CREATE TABLE notification_channels (
+  name TEXT PRIMARY KEY,                          -- 如 "wecom-default"
+  type TEXT NOT NULL,                             -- wecom | dingtalk | feishu | email | webhook
+  config JSONB NOT NULL,                          -- 机器人 webhook / 应用凭据引用 / SMTP 等（密钥用 credential_ref）
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  is_default BOOLEAN NOT NULL DEFAULT false,
+  updated_at TIMESTAMPTZ
+);
+CREATE TABLE notification_routes (               -- 事件/告警 → 通道
+  id UUID PRIMARY KEY, event_type TEXT NOT NULL,  -- approval.requested | node.failed | alert.* | run.finished
+  flow_key_pattern TEXT DEFAULT '*', severity_min TEXT, channel_name TEXT REFERENCES notification_channels(name),
+  template_key TEXT, enabled BOOLEAN DEFAULT true
+);
+CREATE TABLE notification_log (
+  id BIGSERIAL PRIMARY KEY, ts TIMESTAMPTZ DEFAULT now(), channel_name TEXT, event_type TEXT,
+  run_id UUID, recipients TEXT[], status TEXT, error TEXT, payload_ref TEXT
+);
+
+-- 企业配置项（ERP 数据源 / LLM / 对象存储 / 身份源）
+CREATE TABLE profiles (
+  name TEXT PRIMARY KEY,                          -- erp_dev / supplier_files / llm-default
+  kind TEXT NOT NULL,                             -- document_source | llm | artifact_store | identity_provider
+  type TEXT NOT NULL,                             -- jdbc | http | file | openai_compatible | s3 | oidc | wecom | ldap
+  config JSONB NOT NULL,                          -- 连接信息、字段映射；密钥只放 credential_ref
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  updated_by TEXT, updated_at TIMESTAMPTZ
+);
+CREATE TABLE credentials (                       -- 密钥引用；值加密存储（或指向 Vault）
+  ref TEXT PRIMARY KEY, kind TEXT, encrypted_value BYTEA, vault_path TEXT, updated_at TIMESTAMPTZ
+);
+
+CREATE TABLE node_idempotency (                  -- 写类节点幂等（SDK IdempotencyStore）
+  key TEXT PRIMARY KEY, run_id UUID, node_id TEXT, result_ref TEXT, created_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE api_keys (
@@ -210,16 +282,59 @@ CREATE TABLE audit_log (
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/approvals?status=pending&mine=true` | 我的待审批（按角色 / 用户匹配） |
-| GET | `/approvals/{id}` | 详情（摘要、附件预览、表单 Schema） |
-| POST | `/runs/{id}/approvals/{nodeId}` | `{decision: approved\|rejected, comment, form}` → 校验 `form` 符合 `formSchema` → Signal `approve` → `approvals` 表更新 |
+| GET | `/approvals?status=pending&mine=true` | 我的待审批（`resolved_user_ids` 包含当前用户） |
+| GET | `/approvals/{id}` | 详情（摘要、附件预览、表单 Schema、审批人列表、已决策明细） |
+| POST | `/runs/{id}/approvals/{nodeId}` | `{decision: approved\|rejected, comment, form}` → 校验操作人 ∈ `resolved_user_ids` → 校验 `form` 符合 `formSchema` → Signal `approve` → `approvals` / `approval_decisions` 更新 |
+| POST | `/approvals/{id}/transfer` | 转办给其他用户（记录审计，更新 `resolved_user_ids`） |
 
-### 3.5 Artifacts
+审批人解析（消费 `approval.requested` 事件时执行，结果快照到 `approvals.resolved_user_ids`）：
+
+| 来源 | 解析 |
+|---|---|
+| `roles[]` | `user_roles` 中拥有任一角色的用户 |
+| `departments[]` | `user_departments`；`includeChildren` 时按 `departments.path` 前缀 |
+| `users[]` | 直接 |
+| `dynamic[]` | `manager_of_initiator` → `users.manager_user_id`（发起人 = `runs.triggered_by`）；`manager_of:<uid>`；模板表达式渲染为用户 ID / 数组 |
+| 结果为空 | 回退到 `notification_routes` 中配置的"兜底审批角色"，并发告警 |
+
+### 3.5 Artifacts（MinIO）
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/artifacts` | Worker 上传（内部 token） |
-| GET | `/artifacts/{id}` / `/artifacts/{id}/preview` | 下载 / 前 N 行 JSON 预览 |
+| POST | `/artifacts/presign-upload` | Worker / 前端获取预签名 PUT URL（内部 token 或用户 token）；成功后 `POST /artifacts/{id}/complete` 写元数据 |
+| GET | `/artifacts/{id}` | 302 到预签名 GET URL（有效期 10 分钟） |
+| GET | `/artifacts/{id}/preview?rows=100` | JSON / CSV / xlsx 前 N 行预览（服务端流式读取） |
+
+### 3.5.1 身份与组织架构
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/identity/me` | 当前用户、角色、部门 |
+| GET | `/identity/departments/tree` | 部门树（审批人选择器） |
+| GET | `/identity/users?q=&department_id=` | 用户搜索 |
+| GET | `/identity/roles` | 角色列表 |
+| POST | `/identity/sync` | 触发组织架构同步（admin）；返回同步统计 |
+| PUT | `/identity/role-mappings` | IdP 组 → 平台角色映射 |
+
+### 3.5.2 通知中心
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET / PUT | `/notifications/channels` | 通道配置（企业微信默认；钉钉 / 飞书 / 邮件 / Webhook） |
+| POST | `/notifications/channels/{name}/test` | 发送测试消息 |
+| GET / PUT | `/notifications/routes` | 事件 / 告警 → 通道路由 |
+| GET | `/notifications/log?run_id=` | 发送记录 |
+| POST | `/notifications/alertmanager-webhook` | 接收 Alertmanager 告警，按路由转发到通道（统一消息模板） |
+
+### 3.5.3 企业配置项（Profiles）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET / PUT | `/profiles?kind=document_source` | ERP 数据源 profile（jdbc / http / file 三种类型的配置与字段映射） |
+| POST | `/profiles/{name}/test` | 连通性测试 + 抽样 5 行按映射预览为标准单据模型 |
+| POST | `/profiles/file-import/infer-mapping` | 上传样例 xlsx/csv，自动推断列映射（可手工调整后保存） |
+| GET / PUT | `/profiles?kind=llm` | LLM profile（provider / base_url / model / credential_ref / 预算） |
+| GET / PUT | `/credentials` | 密钥引用管理（只写不读，返回掩码） |
 
 ### 3.6 度量
 
@@ -254,13 +369,13 @@ Activity ctx.log / Workflow emit_event
           └─► platform-api projector (XREADGROUP, 消费组 "projector", N 副本)
                  ├─► UPSERT run_nodes / INSERT run_events (event_id 幂等)
                  ├─► UPDATE runs.status（由 run.* / node.* 推导）
-                 ├─► approvals 表（approval.*）
-                 ├─► 告警规则匹配 → Alertmanager webhook / 直接 IM（见 06 文档）
+                 ├─► run_node_items（foreach.item_*）
+                 ├─► approvals 表（approval.requested → 解析审批人 → 通知中心按路由推送）
+                 ├─► 通知路由匹配（node.failed / approval.reminder / run.finished → 通道）
                  └─► Redis Pub/Sub  sse:<run_id>  → 各 API 实例 fan-out 到本地 SSE 连接
 ```
 
-- SSE 断线重连：客户端带 `since=<event_id>`，服务端先从 `run_events` 补发再切实时。
-- 开发期无 Redis 时：`EVENT_BUS=postgres` 使用 `LISTEN/NOTIFY` + `run_events` 表轮询降级（同一接口）。
+- SSE 断线重连：客户端带 `since=<event_id>`，服务端先从 `run_events` 补发再切实时（Spring WebFlux `SseEmitter` / `Flux<ServerSentEvent>`）。
 - 事件保留：Redis Stream 24h；`run_events` 30 天（分区表按月 drop）；Temporal History 按 namespace retention（开发 7 天）。
 
 ## 6. 开放 API（外部系统触发）
@@ -274,23 +389,62 @@ Activity ctx.log / Workflow emit_event
 | Webhook | → `callback_url` | `run.finished` / `approval.requested` 事件，HMAC-SHA256 签名头 `X-Signature`，重试 5 次指数退避 |
 
 - 限流：按 API Key 令牌桶（默认 60 req/min）；审计写 `audit_log`。
-- OpenAPI 文档由 FastAPI 自动生成 `/open/v1/docs`。
+- OpenAPI 文档由 springdoc 生成 `/open/v1/docs`。
 
-## 7. 权限（阶段 1 简化模型）
+## 7. 身份、组织架构与权限（决策 4）
+
+### 7.1 登录
+
+- 前端 OIDC Authorization Code + PKCE；platform-api 作为 **OAuth2 Resource Server** 校验 JWT。
+- 开发环境：Keycloak（docker-compose 内置 realm `agent-platform`，预置用户 / 组）。
+- 生产：企业现有 IdP（AD/LDAP、企业微信、钉钉、飞书）通过 Keycloak **Identity Brokering / User Federation** 接入，或直接对接支持 OIDC 的 IdP；平台代码不变。
+
+### 7.2 组织架构同步 `IdentityProvider` SPI
+
+```java
+public interface IdentityProvider {
+  String type();                                  // oidc-scim | wecom | dingtalk | feishu | ldap
+  List<Department> listDepartments();
+  List<User> listUsers();                         // 含 manager、部门归属
+  List<Group> listGroups();                       // 映射为角色
+}
+```
+
+- 定时（默认 1h）+ 手动触发全量同步，增量以 `synced_at` 对比；用户停用不删除。
+- `role_mappings` 把 IdP 组映射为平台角色；平台自定义角色（如 `recon_ops`）可直接给用户 / 部门授予。
+
+### 7.3 权限模型
 
 | 角色 | 能力 |
 |---|---|
 | viewer | 查看流程 / 运行 / 日志 |
 | editor | + 编辑草稿、发布、回滚 |
-| operator | + 审批、手工动作、断点、修正上下文、取消 |
-| admin | + 注册中心管理、API Key、用户角色 |
+| operator | + 审批（须在审批人集合内）、手工动作、断点、修正上下文、取消 |
+| admin | + 注册中心管理、API Key、通知通道、Profiles、身份源、角色映射 |
 
-阶段 2 预留：审批节点 `assignees.roles` 与角色系统对接；OIDC 登录适配层。
+流程级授权（阶段 2 可选）：`flow_permissions(flow_id, principal_type, principal_id, permission)` 限制特定部门 / 角色只能看到自己的流程。
 
-## 8. 关键实现要点
+## 8. 通知中心（决策 3）
 
-- `start_workflow` 使用 `WorkflowIDReusePolicy.REJECT_DUPLICATE`，`workflow_id` 含 `run_id`，保证幂等。
-- `Query get_state` 只在 `runs.status` 为进行中时调用（已完成 run 直接读投影，避免打 Temporal）。
-- 大列表接口（runs、events）使用 keyset 分页。
+```java
+public interface NotificationChannel {
+  String type();                                  // wecom | dingtalk | feishu | email | webhook
+  SendResult send(Message msg, List<Recipient> to);   // Recipient 由 user_id 解析为通道侧 ID（企业微信 userid / 邮箱）
+}
+```
+
+- **企业微信默认**：支持应用消息（按 userid 推送卡片，含"去审批"按钮）与群机器人 Webhook 两种模式。
+- 钉钉 / 飞书：应用消息 + 群机器人；邮件：SMTP；Webhook：通用 JSON（对接企业自有 IM）。
+- 消息模板（`templates/approval_requested.wecom.md` 等）按通道类型渲染，统一携带运行链接。
+- 路由：`notification_routes` 按事件类型 / 流程 key 通配 / 严重级别选择通道；Alertmanager 告警通过 `/notifications/alertmanager-webhook` 走同一路由，保证运维告警与业务通知格式一致。
+- 每次发送写 `notification_log`，失败重试 3 次后落告警。
+
+## 9. 关键实现要点
+
+- `WorkflowClient.newWorkflowStub(DagWorkflow.class, WorkflowOptions{ workflowId="run:<key>:<uuid>", taskQueue="dag-engine", workflowIdReusePolicy=REJECT_DUPLICATE, searchAttributes })`，保证幂等。
+- `getState` Query 只在 `runs.status` 为进行中时调用（已完成 run 直接读投影）。
+- 大列表接口（runs、events、items）使用 keyset 分页。
 - 所有写操作记 `audit_log`（actor、action、target、detail）。
-- Search Attributes：`FlowKey`（Keyword）、`FlowVersion`（Int）、`TriggeredBy`（Keyword），便于在 Temporal UI 直接按流程过滤。
+- Search Attributes：`FlowKey`（Keyword）、`FlowVersion`（Int）、`TriggeredBy`（Keyword）、`ParentRunId`（Keyword）。
+- 密钥：`credentials` 表值用 AES-GCM 加密（主密钥来自环境 / KMS），或 `vault_path` 指向 Vault；API 只写不读。
+- 所有 SPI（`DocumentSource` / `NotificationChannel` / `IdentityProvider` / `LlmProvider` / `ArtifactStore`）通过 Spring `@ConditionalOnProperty` + `profiles` 表动态实例化，新增实现只需放入 `integrations/*` 模块。
