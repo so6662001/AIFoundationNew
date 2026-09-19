@@ -1,6 +1,6 @@
 # AI 智能体底座（Agent Foundation）设计方案文档集
 
-> 状态：**v0.2 — 决策点已确认（Java / 三种 ERP 接入 / 企业微信可配置 / SSO 组织架构 / MinIO / for-each 提前）**。高保真原型见 [`prototype/index.html`](../prototype/index.html)。
+> 状态：**v0.2 — 决策点已确认（Java / 三种 ERP 接入 / 企业微信可配置 / SSO 组织架构 / MinIO / for-each 提前）**。高保真原型见 [`prototype/overview.html`](../prototype/overview.html)。
 
 | 编号 | 文档 | 内容 |
 |---|---|---|
@@ -25,7 +25,11 @@
 
 | 页面 | 文件 | 内容 |
 |---|---|---|
+| **原型总览** | [`prototype/overview.html`](../prototype/overview.html) | 所有页面实时缩略 + 说明 + 深链（评审入口） |
 | 流程列表 | [`prototype/index.html`](../prototype/index.html) | 流程卡片、版本状态、最近运行 |
+| 运行列表 | [`prototype/runs.html`](../prototype/runs.html) | 筛选、节点进度、子运行、一键重试 / 审批 |
+| 流程度量 | [`prototype/metrics.html`](../prototype/metrics.html) | 耗时 / 失败率 / 审批时长 / 分支分布 / 热力图 |
+| 节点注册中心 | [`prototype/registry.html`](../prototype/registry.html) | 节点类型、Schema、Worker、新增节点指引 |
 | 画布编辑器 | [`prototype/editor.html`](../prototype/editor.html) | 节点面板 / 可拖拽画布 / 属性面板（分支规则、审批人、for-each、重试）/ 校验 / DAG JSON |
 | 运行监控 | [`prototype/run.html`](../prototype/run.html) | 节点状态着色、实时日志流、IO 查看、断点 / 重试 / 跳过、审批弹窗、for-each item 下钻、时间线 |
 | 待审批 | [`prototype/approvals.html`](../prototype/approvals.html) | 待办列表、审批详情、表单、企业微信卡片预览 |

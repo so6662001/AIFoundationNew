@@ -19,12 +19,15 @@ AF.renderShell = function (opts) {
     { id: "editor", href: "editor.html", label: "画布编辑器", ic: "flows" },
     { id: "versions", href: "versions.html", label: "版本管理", ic: "versions" },
     { g: "运行" },
+    { id: "runlist", href: "runs.html", label: "运行列表", ic: "runs" },
     { id: "runs", href: "run.html", label: "运行监控", ic: "runs", badge: "4" },
     { id: "approvals", href: "approvals.html", label: "待审批", ic: "approvals", badge: "3" },
-    { id: "metrics", href: "#", label: "流程度量", ic: "metrics" },
+    { id: "metrics", href: "metrics.html", label: "流程度量", ic: "metrics" },
     { g: "平台" },
-    { id: "registry", href: "#", label: "节点注册中心", ic: "registry" },
-    { id: "settings", href: "settings.html", label: "企业配置", ic: "settings" }
+    { id: "registry", href: "registry.html", label: "节点注册中心", ic: "registry" },
+    { id: "settings", href: "settings.html", label: "企业配置", ic: "settings" },
+    { g: "原型" },
+    { id: "overview", href: "overview.html", label: "原型总览 / 页面索引", ic: "flows" }
   ];
   var html = '<aside class="sidebar"><div class="brand"><div class="logo">AF</div><div><div class="name">Agent Foundation</div><div class="sub">AI 智能体底座 · Temporal</div></div></div><nav class="nav">';
   nav.forEach(function (n) {
