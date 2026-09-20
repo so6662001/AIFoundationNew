@@ -1,0 +1,220 @@
+{
+  "schemaVersion": "1.0",
+  "flow": {
+    "key": "recon.purchase_monthly",
+    "name": "采购月度对账（Demo）",
+    "description": "拉取采购单与供应商对账单 -> 匹配并识别差异 -> 差异分类 -> 大额差异人工确认 -> 生成对账报告",
+    "version": null,
+    "tags": ["对账", "采购", "demo"]
+  },
+  "variables": {
+    "type": "object",
+    "required": ["period", "supplier_id"],
+    "properties": {
+      "period": { "type": "string", "title": "对账期间", "pattern": "^\\d{4}-\\d{2}$", "default": "2026-08" },
+      "supplier_id": { "type": "string", "title": "供应商编码", "default": "SUP-0001" },
+      "threshold": { "type": "number", "title": "大额差异阈值(元)", "default": 10000, "minimum": 0 }
+    }
+  },
+  "settings": {
+    "taskQueue": "nodes-recon",
+    "runTimeout": "P7D",
+    "defaultRetryPolicy": { "maximumAttempts": 3, "initialInterval": "PT2S", "backoffCoefficient": 2.0, "maximumInterval": "PT1M" },
+    "defaultTimeouts": { "startToClose": "PT5M", "scheduleToClose": "PT30M" },
+    "context": { "softLimitBytes": 262144, "hardLimitBytes": 1048576 },
+    "onNodeError": "pause",
+    "templateMissing": "error"
+  },
+  "nodes": [
+    { "id": "start", "kind": "start", "name": "开始", "position": { "x": 40, "y": 200 } },
+
+    {
+      "id": "fetch_docs",
+      "kind": "task",
+      "name": "拉取单据",
+      "description": "从 ERP 拉取采购单，从供应商对账单库拉取对账单，明细落 artifact",
+      "position": { "x": 260, "y": 200 },
+      "nodeType": "recon.fetch_documents@1",
+      "inputs": {
+        "period": "{{input.period}}",
+        "supplier_id": "{{input.supplier_id}}",
+        "sources": ["erp_po", "supplier_statement"]
+      },
+      "config": { "page_size": 500, "source_profile": "erp_dev" },
+      "outputKey": "docs",
+      "retryPolicy": { "maximumAttempts": 5, "initialInterval": "PT2S", "backoffCoefficient": 2.0, "maximumInterval": "PT2M", "nonRetryableErrorTypes": ["ValidationError"] },
+      "timeouts": { "startToClose": "PT10M", "heartbeat": "PT30S" },
+      "onError": { "action": "pause" }
+    },
+
+    {
+      "id": "match_diff",
+      "kind": "task",
+      "name": "对账差异识别",
+      "description": "按单号/金额/日期匹配，输出差异汇总，差异明细落 artifact",
+      "position": { "x": 500, "y": 200 },
+      "nodeType": "recon.match_and_diff@1",
+      "inputs": {
+        "erp_batch_ref": "{{context.docs.batches.erp_po}}",
+        "statement_batch_ref": "{{context.docs.batches.supplier_statement}}",
+        "amount_tolerance": 0.01
+      },
+      "config": { "match_keys": ["po_no", "invoice_no"], "date_tolerance_days": 3 },
+      "outputKey": "diff",
+      "timeouts": { "startToClose": "PT15M", "heartbeat": "PT30S" },
+      "breakpoint": false
+    },
+
+    {
+      "id": "classify_diff",
+      "kind": "task",
+      "name": "差异分类（规则/LLM）",
+      "description": "对差异明细逐条归因：单价差 / 数量差 / 漏单 / 重复；LLM 仅做备注文本理解，输出结构化字段",
+      "position": { "x": 740, "y": 200 },
+      "nodeType": "recon.classify_diff@1",
+      "inputs": {
+        "diff_detail_ref": "{{context.diff.detail_ref}}",
+        "mode": "rules"
+      },
+      "config": { "llm_profile": "default", "max_items_for_llm": 200 },
+      "outputKey": "classified",
+      "retryPolicy": { "maximumAttempts": 3, "initialInterval": "PT5S", "backoffCoefficient": 2.0, "maximumInterval": "PT1M", "nonRetryableErrorTypes": ["ValidationError", "BudgetExceeded"] },
+      "timeouts": { "startToClose": "PT20M", "heartbeat": "PT1M" },
+      "onError": { "action": "skip", "skipOutput": { "categories": {}, "skipped": true } }
+    },
+
+    {
+      "id": "is_big_diff",
+      "kind": "branch",
+      "name": "是否大额差异",
+      "position": { "x": 980, "y": 200 },
+      "cases": [
+        {
+          "id": "big",
+          "label": "大额差异 → 人工确认",
+          "when": {
+            "all": [
+              { "left": "{{context.diff.count}}", "op": "gt", "right": 0 },
+              { "left": "{{context.diff.total_abs_amount}}", "op": "gt", "right": "{{input.threshold}}" }
+            ]
+          }
+        },
+        {
+          "id": "small",
+          "label": "小额差异 → 自动通过",
+          "when": { "left": "{{context.diff.count}}", "op": "gt", "right": 0 }
+        }
+      ],
+      "default": "none",
+      "evaluation": "first_match"
+    },
+
+    {
+      "id": "approve_diff",
+      "kind": "approval",
+      "name": "运营确认大额差异",
+      "position": { "x": 1240, "y": 60 },
+      "assignees": {
+        "roles": ["recon_ops"],
+        "departments": [{ "id": "D-FIN-AP", "includeChildren": false }],
+        "users": [],
+        "dynamic": ["manager_of_initiator"],
+        "strategy": "any"
+      },
+      "title": "供应商 {{input.supplier_id}} {{input.period}} 对账差异确认",
+      "summary": "差异 {{context.diff.count}} 笔，差异金额合计 {{context.diff.total_abs_amount}} 元（阈值 {{input.threshold}}）。分类：{{context.classified.categories}}",
+      "attachments": ["{{context.diff.detail_ref}}"],
+      "formSchema": {
+        "type": "object",
+        "properties": {
+          "comment": { "type": "string", "title": "处理意见" },
+          "adjustment": { "type": "string", "title": "调整方式", "enum": ["以ERP为准", "以供应商为准", "下期处理"] }
+        }
+      },
+      "timeout": "P3D",
+      "onTimeout": "route",
+      "reminder": { "every": "PT12H", "channel": "wecom" },
+      "outputKey": "approval"
+    },
+
+    {
+      "id": "set_auto_pass",
+      "kind": "assign",
+      "name": "标记自动通过",
+      "position": { "x": 1240, "y": 200 },
+      "assignments": [
+        { "target": "context.approval", "value": { "decision": "auto_approved", "operator": "system", "comment": "小额差异自动通过" } }
+      ]
+    },
+
+    {
+      "id": "set_no_diff",
+      "kind": "assign",
+      "name": "标记无差异",
+      "position": { "x": 1240, "y": 340 },
+      "assignments": [
+        { "target": "context.approval", "value": { "decision": "no_diff", "operator": "system", "comment": "无差异" } }
+      ]
+    },
+
+    {
+      "id": "gen_report",
+      "kind": "task",
+      "name": "生成对账报告",
+      "position": { "x": 1520, "y": 200 },
+      "nodeType": "recon.generate_report@1",
+      "inputs": {
+        "period": "{{input.period}}",
+        "supplier_id": "{{input.supplier_id}}",
+        "diff_summary": "{{context.diff}}",
+        "classified": "{{context.classified}}",
+        "approval": "{{context.approval}}",
+        "diff_detail_ref": "{{context.diff.detail_ref}}"
+      },
+      "config": { "format": "xlsx" },
+      "outputKey": "report",
+      "timeouts": { "startToClose": "PT5M" }
+    },
+
+    {
+      "id": "end_rejected",
+      "kind": "end",
+      "name": "驳回结束",
+      "position": { "x": 1520, "y": 40 },
+      "status": "failed",
+      "outputs": { "reason": "运营驳回", "approval": "{{context.approval}}" }
+    },
+
+    {
+      "id": "end_ok",
+      "kind": "end",
+      "name": "完成",
+      "position": { "x": 1760, "y": 200 },
+      "status": "success",
+      "outputs": {
+        "report_ref": "{{context.report.ref}}",
+        "diff_count": "{{context.diff.count}}",
+        "decision": "{{context.approval.decision}}"
+      }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "start", "sourceHandle": "out", "target": "fetch_docs", "targetHandle": "in" },
+    { "id": "e2", "source": "fetch_docs", "sourceHandle": "out", "target": "match_diff", "targetHandle": "in" },
+    { "id": "e3", "source": "match_diff", "sourceHandle": "out", "target": "classify_diff", "targetHandle": "in" },
+    { "id": "e4", "source": "classify_diff", "sourceHandle": "out", "target": "is_big_diff", "targetHandle": "in" },
+
+    { "id": "e5_big", "source": "is_big_diff", "sourceHandle": "big", "target": "approve_diff", "targetHandle": "in", "label": "大额差异" },
+    { "id": "e5_small", "source": "is_big_diff", "sourceHandle": "small", "target": "set_auto_pass", "targetHandle": "in", "label": "小额差异" },
+    { "id": "e5_none", "source": "is_big_diff", "sourceHandle": "none", "target": "set_no_diff", "targetHandle": "in", "label": "无差异" },
+
+    { "id": "e6_approved", "source": "approve_diff", "sourceHandle": "approved", "target": "gen_report", "targetHandle": "in", "label": "通过" },
+    { "id": "e6_rejected", "source": "approve_diff", "sourceHandle": "rejected", "target": "end_rejected", "targetHandle": "in", "label": "驳回" },
+    { "id": "e6_timeout", "source": "approve_diff", "sourceHandle": "timeout", "target": "gen_report", "targetHandle": "in", "label": "超时按待处理出报告" },
+
+    { "id": "e7", "source": "set_auto_pass", "sourceHandle": "out", "target": "gen_report", "targetHandle": "in" },
+    { "id": "e8", "source": "set_no_diff", "sourceHandle": "out", "target": "gen_report", "targetHandle": "in" },
+    { "id": "e9", "source": "gen_report", "sourceHandle": "out", "target": "end_ok", "targetHandle": "in" }
+  ],
+  "ui": { "viewport": { "x": 0, "y": 0, "zoom": 0.8 } }
+}

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<title>原型总览 · Agent Foundation</title>
+<link rel="stylesheet" href="assets/app.css"/>
+<style>
+  body{background:var(--bg)}
+  .wrap{max-width:1480px;margin:0 auto;padding:28px 32px}
+  .hero{display:flex;align-items:flex-start;gap:24px;margin-bottom:24px}
+  .hero h1{margin:0 0 6px;font-size:22px}
+  .hero p{margin:0;color:var(--text-2);line-height:1.7}
+  .flowmap{font-family:var(--mono);font-size:11.5px;line-height:1.8;color:var(--text-2);background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;white-space:pre;flex:none}
+  .sec{margin:26px 0 12px;font-size:15px;font-weight:600;display:flex;align-items:center;gap:10px}
+  .sec .n{width:22px;height:22px;border-radius:50%;background:var(--primary);color:#fff;display:grid;place-items:center;font-size:12px}
+  .shots{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+  .shot{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+  .shot .frame{position:relative;height:0;padding-bottom:62.5%;overflow:hidden;background:#f0f2f6;border-bottom:1px solid var(--border)}
+  .shot iframe{position:absolute;left:0;top:0;width:1600px;height:1000px;border:0;transform-origin:0 0;pointer-events:none}
+  .shot .cap{padding:12px 14px}
+  .shot .cap h3{margin:0 0 4px;font-size:14px;display:flex;align-items:center;gap:8px}
+  .shot .cap p{margin:0;color:var(--text-2);font-size:12.5px;line-height:1.7}
+  .shot .cap .links{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+  .shot .cap .links a{font-size:12px;padding:2px 8px;border:1px solid var(--border);border-radius:6px;color:var(--primary);background:#fff}
+  .shot .cap .links a:hover{border-color:var(--primary)}
+  .shot.wide{grid-column:1/3}
+  .shot.wide .frame{padding-bottom:40%}
+  .shot.wide iframe{width:1600px;height:1000px}
+  .legend-row{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-2);margin-top:10px}
+  .legend-row span{display:flex;align-items:center;gap:6px}
+  .note{background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:12.5px;line-height:1.8;color:var(--text-2)}
+  .note b{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div style="flex:1">
+      <div class="row" style="margin-bottom:8px"><div class="logo" style="width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#4f7cff,#7c3aed);display:grid;place-items:center;color:#fff;font-weight:700">AF</div><div><h1 style="margin:0">Agent Foundation · 高保真原型总览</h1><div class="muted small">AI 智能体底座 · Temporal + React/xyflow · 方案 v0.2 · 9 个页面</div></div></div>
+      <p>下方每张缩略图都是<b>真实页面的实时渲染</b>（iframe 缩放），点击标题或链接进入可交互页面。原型覆盖业务人员（编排、审批）、运营（监控、处置）、平台管理员（注册中心、企业配置）三类角色的主路径，并体现已确认决策：Java 中台、ERP 三种接入、企业微信可配置通知、SSO 组织架构审批人、MinIO、for-each 循环。</p>
+      <div class="legend-row"><span><i class="dot" style="background:var(--primary)"></i>业务人员：编排 / 发布 / 回滚</span><span><i class="dot" style="background:var(--purple)"></i>运营：审批 / 监控 / 处置</span><span><i class="dot" style="background:var(--success)"></i>管理员：注册中心 / 企业配置</span><span><i class="dot" style="background:var(--warning)"></i>度量与治理</span></div>
+    </div>
+    <div class="flowmap">主路径
+ ① 流程列表 ─► ② 画布编辑器 ─► 校验 ─► 发布 ─► ⑤ 版本管理（回滚）
+                    │ 运行
+                    ▼
+ ③ 运行监控 ◄─ SSE ─ Temporal ─► ④ 待审批（企业微信卡片 → Signal）
+                    │
+ ⑥ 运行列表 · ⑦ 流程度量 · ⑧ 节点注册中心 · ⑨ 企业配置</div>
+  </div>
+
+  <div class="sec"><span class="n">A</span>编排（业务人员）</div>
+  <div class="shots">
+    <div class="shot wide"><div class="frame"><iframe src="editor.html#select=is_big_diff&tab=%E5%88%86%E6%94%AF%E8%A7%84%E5%88%99" loading="lazy"></iframe></div><div class="cap"><h3><a href="editor.html">② 画布编辑器</a><span class="tag blue">核心</span></h3><p>左：节点面板（来自注册中心，按分类，Java / Python 标记，Worker 离线态）。中：xyflow 风格画布，拖拽节点、从连接桩拖出连线（成环 / 分支单出边即时校验）、缩放、删除；分支节点按 case 输出多个连接桩，审批节点输出 通过 / 驳回 / 超时。右：属性面板按节点类型切换——任务（输入映射 + 变量选择器、配置表单、重试超时三层默认、失败处理四策略、断点）、分支（规则构建器 + 历史上下文试算）、审批（组织架构选人 / 策略 / 表单 / 超时提醒）、for-each（items / 并发 / 分批 / 循环体 / 收集字段）。下：校验问题抽屉，点击定位节点。</p><div class="links"><a href="editor.html#select=fetch_docs&tab=%E8%BE%93%E5%85%A5%E6%98%A0%E5%B0%84">任务 · 输入映射</a><a href="editor.html#select=fetch_docs&tab=%E9%87%8D%E8%AF%95/%E8%B6%85%E6%97%B6">任务 · 重试/超时</a><a href="editor.html#select=classify_diff&tab=%E5%A4%B1%E8%B4%A5%E5%A4%84%E7%90%86">任务 · 失败处理</a><a href="editor.html#select=is_big_diff&tab=%E5%88%86%E6%94%AF%E8%A7%84%E5%88%99">分支 · 规则构建器</a><a href="editor.html#select=approve_diff&tab=%E5%AE%A1%E6%89%B9%E4%BA%BA">审批 · 审批人</a><a href="editor.html#flow=foreach&select=per_supplier&tab=%E5%BE%AA%E7%8E%AF%E9%85%8D%E7%BD%AE">for-each · 循环配置</a><a href="editor.html#flow=foreach&select=per_supplier&tab=%E5%BE%AA%E7%8E%AF%E4%BD%93">for-each · 循环体</a></div></div></div>
+    <div class="shot"><div class="frame"><iframe src="index.html" loading="lazy"></iframe></div><div class="cap"><h3><a href="index.html">① 流程列表</a></h3><p>统计卡（今日运行 / 进行中 / 待审批 / 失败暂停）、流程表（当前版本、草稿、24h 运行、成功率、最近运行条、进行中 / 待审批）、最近运行、平台状态（Temporal / Worker / MinIO / 通知通道 / 身份源）。</p><div class="links"><a href="index.html">打开</a></div></div></div>
+    <div class="shot"><div class="frame"><iframe src="versions.html" loading="lazy"></iframe></div><div class="cap"><h3><a href="versions.html">⑤ 版本管理</a></h3><p>版本时间线（草稿 / 当前发布 / 已发布 / 归档）、运行数、回滚弹窗（复制旧版本发布为新版本，进行中运行不受影响）、结构化 Diff（业务可读变更摘要 + JSON 并排）、子流程锁定提示。</p><div class="links"><a href="versions.html">打开</a></div></div></div>
+  </div>
+
+  <div class="sec"><span class="n">B</span>运行与审批（运营）</div>
+  <div class="shots">
+    <div class="shot wide"><div class="frame"><iframe src="run.html" loading="lazy"></iframe></div><div class="cap"><h3><a href="run.html">③ 运行监控</a><span class="tag purple">核心</span></h3><p>只读画布按状态着色（待执行 / 执行中脉冲 / 成功 / 失败 / 暂停 / 等待审批 / 已跳过），已执行边高亮；右侧运行概览（进度条、上下文大小 vs 软限）与节点详情（概览 / 输入 / 输出 / 日志 / 错误 + 重试 / 跳过 / 终止 / 断点操作）；底部实时日志流（节点 / 级别过滤、自动滚动）、时间线甘特、事件流。审批弹窗点"通过"会模拟 Signal，流程继续到生成报告与结束。for-each 运行可下钻 item 列表。</p><div class="links"><a href="run.html">单供应商 · 等待审批</a><a href="run.html#approve">审批弹窗</a><a href="run.html#foreach">for-each 运行</a><a href="run.html#foreach&items">for-each item 列表</a></div></div></div>
+    <div class="shot"><div class="frame"><iframe src="approvals.html" loading="lazy"></iframe></div><div class="cap"><h3><a href="approvals.html">④ 待审批</a></h3><p>待办列表（严重度、等待时长、截止、策略）、审批详情（审批人解析结果、差异表、附件预览、表单）、企业微信卡片与通知记录（推送 / 提醒 / 超时计划）、催办 / 转办 / 通过 / 驳回。</p><div class="links"><a href="approvals.html">打开</a></div></div></div>
+    <div class="shot"><div class="frame"><iframe src="runs.html" loading="lazy"></iframe></div><div class="cap"><h3><a href="runs.html">⑥ 运行列表</a></h3><p>状态快捷筛选、流程 / 版本 / 触发方式 / 时间范围过滤、run_id / 输入参数搜索、节点进度条、当前节点、子运行（for-each item）折叠、一键重试 / 审批。</p><div class="links"><a href="runs.html">打开</a></div></div></div>
+  </div>
+
+  <div class="sec"><span class="n">C</span>平台与治理（管理员）</div>
+  <div class="shots">
+    <div class="shot"><div class="frame"><iframe src="registry.html" loading="lazy"></iframe></div><div class="cap"><h3><a href="registry.html">⑧ 节点注册中心</a></h3><p>节点类型列表（版本 / 队列 / 语言 / 在线 Worker / 今日执行与失败率 / P95 / 状态）、详情（inputSchema / outputSchema / configSchema、默认重试超时、Worker 心跳、被哪些流程引用）、"如何新增节点"指引（Java 示例）。</p><div class="links"><a href="registry.html">打开</a></div></div></div>
+    <div class="shot"><div class="frame"><iframe src="metrics.html" loading="lazy"></iframe></div><div class="cap"><h3><a href="metrics.html">⑦ 流程度量</a></h3><p>运行数与成功率趋势、节点耗时 P50/P95、分支命中分布（含改阈值后的估算）、审批时长分布、失败原因 Top、节点失败率热力图；用于优化 AI 销售 / 采购链路。</p><div class="links"><a href="metrics.html">打开</a></div></div></div>
+    <div class="shot"><div class="frame"><iframe src="settings.html" loading="lazy"></iframe></div><div class="cap"><h3><a href="settings.html">⑨ 企业配置 · ERP 数据源</a></h3><p>三种接入 profile（直连库 JDBC / 接口 HTTP / 导出文件 xlsx）与标准单据模型字段映射表（含抽样预览、过滤模板、只读约束）。不同企业不同 ERP 只改配置。</p><div class="links"><a href="settings.html">ERP 数据源</a><a href="settings.html#s=llm">LLM</a><a href="settings.html#s=storage">对象存储 MinIO</a><a href="settings.html#s=cred">密钥引用</a></div></div></div>
+    <div class="shot"><div class="frame"><iframe src="settings.html#s=notify" loading="lazy"></iframe></div><div class="cap"><h3><a href="settings.html#s=notify">⑨ 企业配置 · 通知通道 / 身份</a></h3><p>通知通道（企业微信默认 + 钉钉 / 飞书 / 邮件 / Webhook）与事件路由规则（审批请求 → 审批人应用消息；节点失败 → 业务群；Alertmanager → 运维群；发送失败 → 备用邮件）。身份页：OIDC 登录、组织架构同步、IdP 组 → 平台角色映射、组织树预览。</p><div class="links"><a href="settings.html#s=notify">通知通道</a><a href="settings.html#s=identity">身份与组织架构</a></div></div></div>
+  </div>
+
+  <div class="sec"><span class="n">D</span>原型与方案的对应关系</div>
+  <div class="note">
+    <b>DAG JSON 契约</b>：编辑器「DAG JSON」弹窗输出与 <span class="mono">schemas/dag.schema.json</span> 同构；分支规则、审批人模型、for-each 字段与 <span class="mono">docs/01</span> 一致。<br/>
+    <b>节点 SDK</b>：注册中心「如何新增节点」展示 <span class="mono">@AgentNode</span> Java 写法（<span class="mono">docs/02</span>）；节点面板的 Java / Python 标记、Worker 离线态来自注册中心心跳。<br/>
+    <b>解释器行为</b>：监控页的重试次数、暂停处置（重试 / 跳过 / 终止）、审批 Signal、for-each 进度与 continue-as-new 均对应 <span class="mono">docs/03</span> 的 <span class="mono">DagWorkflowImpl</span> 设计。<br/>
+    <b>企业差异走配置</b>：企业配置页的 profile / 通道 / 身份源对应 <span class="mono">docs/05</span> 的 SPI 与 <span class="mono">profiles</span>、<span class="mono">notification_channels</span>、<span class="mono">departments/users/roles</span> 表。<br/>
+    <b>三条铁律的可见体现</b>：① Workflow 只编排——分支 / 赋值节点标注"Workflow 内纯函数"，任务节点标注队列与 Worker；② LLM 不决定走向——LLM 节点输出 Schema 禁止保留字，走向只在分支节点配置；③ 上下文只存引用——监控页输出中 <span class="mono">ref://artifact/…</span>（MinIO）与上下文大小 vs 软限进度条。
+  </div>
+</div>
+<script>
+// 按容器宽度缩放 iframe（1600×1000 → 容器）
+function fitFrames() { document.querySelectorAll('.shot .frame').forEach(function (f) { var w = f.clientWidth, ifr = f.querySelector('iframe'); if (!ifr) return; var s = w / 1600; ifr.style.transform = 'scale(' + s + ')'; }); }
+fitFrames(); window.addEventListener('resize', fitFrames);
+</script>
+</body>
+</html>

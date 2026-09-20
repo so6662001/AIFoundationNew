@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<title>流程 · Agent Foundation</title>
+<link rel="stylesheet" href="assets/app.css"/>
+<style>
+  .flowname{font-weight:600}
+  .flowkey{font-family:var(--mono);font-size:11px;color:var(--text-3)}
+  .recent{display:flex;gap:3px}
+  .recent i{width:8px;height:16px;border-radius:2px;background:var(--gray-bg)}
+  .recent .ok{background:var(--success)}.recent .fail{background:var(--danger)}.recent .wait{background:var(--purple)}.recent .run{background:var(--primary)}
+  .hero{display:grid;grid-template-columns:1fr 360px;gap:16px;margin-bottom:16px}
+  .arch{font-family:var(--mono);font-size:11px;line-height:1.7;color:var(--text-2);background:#fafbfd;border:1px solid var(--border);border-radius:8px;padding:10px 12px;white-space:pre}
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+  <main class="main"><div class="page">
+    <div class="row" style="margin-bottom:16px"><h2 style="margin:0;font-size:18px">流程</h2><span class="muted">6 个流程 · 4 个已发布</span><span class="spacer"></span><input class="in" placeholder="搜索流程 / key / 标签" style="width:240px"/><button class="btn">导入 DAG JSON</button><button class="btn primary" onclick="location.href='editor.html'">+ 新建流程</button></div>
+
+    <div class="grid g4" style="margin-bottom:16px">
+      <div class="card stat"><div class="lbl">今日运行</div><div class="val">251<small>成功率 96.4%</small></div><div class="trend up">▲ 12% vs 昨日</div></div>
+      <div class="card stat"><div class="lbl">进行中</div><div class="val">9<small>其中 for-each 子运行 5</small></div><div class="trend muted">Worker 在线 4 · 队列积压 0</div></div>
+      <div class="card stat"><div class="lbl">待审批</div><div class="val" style="color:var(--purple)">3<small>最长等待 20h</small></div><div class="trend muted">审批平均时长 2h 14m</div></div>
+      <div class="card stat"><div class="lbl">今日失败 / 暂停</div><div class="val" style="color:var(--danger)">4<small>已处置 3</small></div><div class="trend down">1 个等待人工重试 → <a href="run.html">去处理</a></div></div>
+    </div>
+
+    <div class="card">
+      <div class="hd">全部流程<span class="spacer"></span><span class="row small muted"><span class="tag gray">对账</span><span class="tag gray">采购</span><span class="tag gray">销售</span><span class="tag gray">子流程</span></span></div>
+      <table class="tbl">
+        <thead><tr><th>流程</th><th>当前版本</th><th>草稿</th><th>24h 运行</th><th>成功率</th><th>最近运行</th><th>进行中 / 待审批</th><th>负责人</th><th>更新</th><th style="width:220px"></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="hero" style="margin-top:16px">
+      <div class="card"><div class="hd">最近运行</div>
+        <table class="tbl"><thead><tr><th>运行</th><th>流程</th><th>版本</th><th>状态</th><th>触发</th><th>耗时</th><th>开始</th></tr></thead><tbody>
+          <tr><td class="mono"><a href="run.html">run_01J8QK7V…</a></td><td>采购月度对账 · SUP-0002</td><td>v3</td><td><span class="st-waiting_approval"><span class="stag">等待审批</span></span></td><td>alice</td><td>1h 02m</td><td>14:02</td></tr>
+          <tr><td class="mono"><a href="run.html#foreach">run_01J8QM2B…</a></td><td>全部供应商（for-each 12/20）</td><td>v1</td><td><span class="st-running"><span class="stag">执行中</span></span></td><td>定时</td><td>2h 05m</td><td>13:00</td></tr>
+          <tr><td class="mono">run_01J8QJ3A…</td><td>采购发票三单匹配</td><td>v7</td><td><span class="st-paused"><span class="stag">已暂停</span></span></td><td>开放 API · ERP</td><td>—</td><td>12:41</td></tr>
+          <tr><td class="mono">run_01J8QH9C…</td><td>采购月度对账 · SUP-0001</td><td>v3</td><td><span class="st-succeeded"><span class="stag">成功</span></span></td><td>alice</td><td>2m 41s</td><td>11:20</td></tr>
+          <tr><td class="mono">run_01J8QG2D…</td><td>销售回款对账</td><td>v2</td><td><span class="st-failed"><span class="stag">失败</span></span></td><td>定时</td><td>0m 48s</td><td>09:00</td></tr>
+        </tbody></table></div>
+      <div class="card"><div class="hd">平台状态</div><div class="bd">
+        <dl class="kv" style="grid-template-columns:120px 1fr"><dt>Temporal</dt><dd><span class="dot" style="background:var(--success)"></span> agent-platform · 1.25 · retention 7d</dd><dt>engine-worker</dt><dd><span class="dot" style="background:var(--success)"></span> 2 副本 · dag-engine</dd><dt>recon-worker</dt><dd><span class="dot" style="background:var(--success)"></span> 2 副本 · nodes-recon</dd><dt>purchase-service</dt><dd><span class="dot" style="background:var(--success)"></span> 3 副本 · nodes-purchase（内嵌）</dd><dt>sales-service</dt><dd><span class="dot" style="background:var(--danger)"></span> 0 在线 · nodes-sales <a href="#">告警</a></dd><dt>llm-worker</dt><dd><span class="dot" style="background:var(--success)"></span> 1 副本 · nodes-llm · python</dd><dt>MinIO</dt><dd><span class="dot" style="background:var(--success)"></span> agent-artifacts 12.4 GB</dd><dt>通知通道</dt><dd><span class="dot" style="background:var(--success)"></span> wecom-default（默认）· 3 个通道</dd><dt>身份源</dt><dd><span class="dot" style="background:var(--success)"></span> Keycloak OIDC · 组织架构 45m 前同步</dd></dl>
+        <div class="arch" style="margin-top:12px">画布 → DAG JSON → ExecutionPlan → Temporal
+DagWorkflow(Java, 只编排) → Activity(Java/Python)
+上下文只存小数据 + ref://artifact (MinIO)</div>
+      </div></div>
+    </div>
+  </div></main>
+</div>
+<script src="assets/data.js"></script>
+<script src="assets/app.js"></script>
+<script>
+AF.renderShell({ active: 'flows', crumbs: ['流程'] });
+document.getElementById('rows').innerHTML = AF.flows.map(function (f) {
+  return '<tr><td><div class="flowname">' + f.name + '</div><div class="flowkey">' + f.key + ' · ' + f.tags.map(function (t) { return '<span class="tag gray">' + t + '</span>'; }).join(' ') + '</div></td>' +
+    '<td>' + (f.current ? '<span class="tag green">v' + f.current + ' 已发布</span>' : '<span class="muted">—</span>') + '</td>' +
+    '<td>' + (f.draft ? '<span class="tag orange">草稿 v' + f.draft + '</span>' : '<span class="muted">—</span>') + '</td>' +
+    '<td class="num">' + f.runs24h + '</td><td class="num">' + (f.successRate === null ? '—' : Math.round(f.successRate * 100) + '%') + '</td>' +
+    '<td><div class="recent">' + (f.recent.length ? f.recent.map(function (r) { return '<i class="' + r + '"></i>'; }).join('') : '<span class="muted small">尚未运行</span>') + '</div></td>' +
+    '<td>' + (f.running ? '<span class="tag blue">' + f.running + ' 运行</span> ' : '') + (f.pendingApprovals ? '<span class="tag purple">' + f.pendingApprovals + ' 待审批</span>' : '') + (!f.running && !f.pendingApprovals ? '<span class="muted">—</span>' : '') + '</td>' +
+    '<td>' + f.owner + '</td><td class="muted">' + f.updated + '</td>' +
+    '<td><div class="row"><a class="btn sm" href="editor.html' + (f.key.indexOf('all_suppliers') > 0 ? '#flow=foreach' : '') + '">编辑</a><a class="btn sm" href="versions.html">版本</a><a class="btn sm success" href="run.html">运行</a></div></td></tr>';
+}).join('');
+</script>
+</body>
+</html>

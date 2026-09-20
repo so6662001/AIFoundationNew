@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<title>运行监控 · Agent Foundation</title>
+<link rel="stylesheet" href="assets/app.css"/>
+<style>
+  .runbar .st{margin-left:4px}
+  .two-run{grid-template-rows:1fr 250px}
+  .two-run > #canvasWrap{grid-column:1;grid-row:1}
+  .two-run > .bottom{grid-column:1;grid-row:2}
+  .rightp{grid-column:2;grid-row:1/3;border-left:1px solid var(--border);background:#fff;display:flex;flex-direction:column;min-height:0}
+  .rightp .ov{padding:12px 14px;border-bottom:1px solid var(--border)}
+  .rightp .ov .kv{grid-template-columns:78px 1fr}
+  .rightp .nd{flex:1;display:flex;flex-direction:column;min-height:0}
+  .rightp .nd .hd{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+  .rightp .nd .tabpane{padding:12px 14px;overflow:auto}
+  .rightp .tabpanes{flex:1;overflow:auto;min-height:0}
+  .actions{display:flex;gap:6px;flex-wrap:wrap;padding:10px 14px;border-top:1px solid var(--border);background:#fafbfd}
+  .bottom{border-top:1px solid var(--border);background:#fff;display:flex;flex-direction:column;min-height:0}
+  .bottom .tabs{padding:0 8px;flex:none}
+  .bottom .tabpanes{flex:1;min-height:0;overflow:hidden}
+  .bottom .tabpane{height:100%}
+  .logfilter{display:flex;gap:6px;align-items:center;margin-left:auto;padding-right:10px;font-size:12px}
+  .logfilter select{height:24px;font-size:12px;border:1px solid var(--border-strong);border-radius:4px}
+  .live{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--success)}
+  .live::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--success);animation:pulse 1s infinite}
+  .approval-box{border:1px solid #dccdfb;background:var(--purple-bg);border-radius:8px;padding:10px 12px;margin-bottom:10px}
+  .approval-box h4{margin:0 0 6px;font-size:13px;color:var(--purple)}
+  .err-box{border:1px solid #f3b7b9;background:var(--danger-bg);border-radius:8px;padding:10px 12px;font-family:var(--mono);font-size:12px;color:#9f1d22;white-space:pre-wrap}
+  .attempts{display:flex;gap:6px;margin:8px 0}
+  .attempts span{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--border)}
+  .attempts .f{color:var(--danger);border-color:#f3b7b9;background:var(--danger-bg)}
+  .attempts .ok{color:var(--success);border-color:#bde9d3;background:var(--success-bg)}
+  .runsel{height:28px;border:1px solid var(--border-strong);border-radius:6px;font-size:12px;padding:0 8px}
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+  <main class="main" style="display:flex;flex-direction:column;overflow:hidden">
+    <div class="toolbar runbar">
+      <select class="runsel" id="runSel"><option value="demo">采购月度对账 · run_01J8QK7V… · SUP-0002</option><option value="foreach">采购月度对账 · 全部供应商 · run_01J8QM2B…（for-each）</option></select>
+      <span id="runStatus"></span>
+      <span class="muted small" id="runMeta"></span>
+      <span class="spacer"></span>
+      <span class="live" id="live">SSE 已连接 · 最近事件 0.8s 前</span>
+      <span class="sep"></span>
+      <button class="btn" onclick="AF.toast('已在 Temporal UI 打开 Workflow Execution')">Temporal UI ↗</button>
+      <button class="btn" onclick="AF.toast('上下文快照（Query getContext）已展开')">查看上下文</button>
+      <button class="btn danger" onclick="AF.toast('已发送 cancel Signal')">取消运行</button>
+    </div>
+    <div class="two-run">
+      <section id="canvasWrap" style="position:relative;min-height:0">
+        <div class="legend"><span><i class="dot" style="background:#b6bdcc"></i>待执行</span><span><i class="dot" style="background:#2f54eb"></i>执行中</span><span><i class="dot" style="background:#22a06b"></i>成功</span><span><i class="dot" style="background:#e5484d"></i>失败</span><span><i class="dot" style="background:#f28c1a"></i>暂停</span><span><i class="dot" style="background:#7c3aed"></i>等待审批</span><span><i class="dot" style="background:repeating-linear-gradient(135deg,#e6e9f0 0 2px,#c9cdd4 2px 4px)"></i>已跳过</span></div>
+        <div class="canvas-tools" style="bottom:12px"><button id="zIn">+</button><button id="zOut">−</button><button id="zFit">⤢</button></div>
+      </section>
+      <aside class="rightp">
+        <div class="ov" id="overview"></div>
+        <div class="nd" id="nodeDetail"></div>
+      </aside>
+      <section class="bottom">
+        <div class="tabs" data-target="bottomPanes"><button class="active" data-tab="日志">实时日志</button><button data-tab="时间线">时间线</button><button data-tab="事件">事件流</button>
+          <div class="logfilter"><span class="muted">节点</span><select id="logNode"><option value="">全部</option></select><span class="muted">级别</span><select id="logLevel"><option value="">全部</option><option>info</option><option>warn</option><option>error</option></select><label class="row small"><span class="switch on" id="autoscroll"></span> 自动滚动</label><button class="btn sm ghost" onclick="AF.toast('已导出 run.log')">导出</button></div>
+        </div>
+        <div class="tabpanes" id="bottomPanes">
+          <div class="tabpane active" data-tab="日志"><div class="log" id="log"></div></div>
+          <div class="tabpane" data-tab="时间线"><div class="timeline" id="timeline"></div></div>
+          <div class="tabpane" data-tab="事件"><div class="log" id="events"></div></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<!-- 审批弹窗 -->
+<div class="modal-mask" id="approveModal"><div class="modal" style="width:720px">
+  <div class="hd">人工审批 · 运营确认大额差异 <span class="tag purple" style="margin-left:8px">等待审批 1h 02m</span><span class="close">×</span></div>
+  <div class="bd">
+    <div class="grid" style="grid-template-columns:1fr 320px;gap:18px">
+      <div>
+        <h3 style="margin:0 0 8px;font-size:15px">供应商 SUP-0002 2026-08 对账差异确认</h3>
+        <p style="margin:0 0 12px;color:var(--text-2)">差异 <b>23</b> 笔，差异金额合计 <b style="color:var(--danger)">32,320.35</b> 元（阈值 10,000）。分类：单价差 8 · 数量差 2 · 漏单 11 · 重复 1 · 其他 1</p>
+        <div class="kv" style="margin-bottom:12px"><dt>审批人</dt><dd>财务共享中心/应付组 (6) · recon_ops (3) · 李经理（发起人上级）<br/><span class="muted">策略 any · 任一人通过即通过 · 当前操作人 alice ∈ 审批人</span></dd><dt>截止</dt><dd>2026-09-22 14:03（P3D）· 超时走 timeout 出边</dd><dt>附件</dt><dd><span class="ref">差异明细.xlsx（23 行，MinIO 预签名）</span> · <span class="ref">预览</span></dd></div>
+        <table class="iotable" style="margin-bottom:12px"><tr><td>单号</td><td>类型</td><td>ERP</td><td>对账单</td><td>差异</td></tr>
+          <tr><td class="mono">PO-2608-0113</td><td>单价差</td><td>12,400.00</td><td>12,640.00</td><td style="color:var(--danger)">+240.00</td></tr>
+          <tr><td class="mono">PO-2608-0141</td><td>漏单（ERP 缺）</td><td>—</td><td>8,900.00</td><td style="color:var(--danger)">+8,900.00</td></tr>
+          <tr><td class="mono">PO-2608-0155</td><td>数量差</td><td>3,200.00</td><td>2,880.00</td><td style="color:var(--success)">-320.00</td></tr>
+          <tr><td colspan="5" class="muted">… 其余 20 行见附件</td></tr></table>
+        <div class="field"><label>调整方式<span class="req">*</span></label><select class="in"><option>以ERP为准</option><option selected>以供应商为准</option><option>下期处理</option></select></div>
+        <div class="field"><label>处理意见</label><textarea class="in" rows="2">漏单 11 笔已与供应商确认为 8 月 30 日到货未入账，下期补录；其余按供应商对账单调整。</textarea></div>
+      </div>
+      <div>
+        <div class="muted small" style="margin-bottom:6px">企业微信推送预览（wecom-default）</div>
+        <div class="wecom-card"><div class="ch"><i></i>Agent Foundation 审批助手 · 14:03</div><div class="cb"><h4>对账差异待确认</h4><dl class="kv"><dt>流程</dt><dd>采购月度对账 v3</dd><dt>供应商</dt><dd>SUP-0002 · 2026-08</dd><dt>差异</dt><dd>23 笔 / 32,320.35 元</dd><dt>截止</dt><dd>09-22 14:03</dd></dl></div><div class="cf"><span>去审批</span><span>›</span></div></div>
+        <div class="muted small" style="margin-top:14px">决策将以 Signal <span class="mono">approve(nodeId, decision, operator, form)</span> 发送到 Workflow；Workflow 写入 <span class="mono">context.approval</span> 并按出边继续。</div>
+      </div>
+    </div>
+  </div>
+  <div class="ft"><button class="btn" onclick="AF.toast('已转办给 bob')">转办</button><span class="spacer"></span><button class="btn danger" onclick="decide('rejected')">驳回</button><button class="btn success" onclick="decide('approved')">通过</button></div>
+</div></div>
+
+<!-- 手工动作弹窗 -->
+<div class="modal-mask" id="actionModal"><div class="modal" style="width:520px">
+  <div class="hd">节点已暂停 · 对账差异识别 <span class="close">×</span></div>
+  <div class="bd"><div class="err-box">ExternalServiceError: MinIO 连接超时 (attempt 3/3, retryable)
+at recon.match_and_diff@1 · worker recon-worker-1@host-a
+onError=pause → 等待人工处置</div><div class="muted small" style="margin:10px 0">可选择：重试（新的 attempt group，幂等键变化）· 跳过（写入 null 到 context.diff，流程继续）· 终止运行</div><div class="field"><label>处置说明</label><input class="in" placeholder="可选"/></div></div>
+  <div class="ft"><button class="btn danger">终止</button><button class="btn">跳过</button><button class="btn primary" onclick="AF.modal('actionModal',false);AF.toast('已发送 manual_action(retry)')">重试</button></div>
+</div></div>
+
+<!-- foreach item 抽屉 -->
+<div class="modal-mask" id="itemsModal"><div class="modal" style="width:860px">
+  <div class="hd">按供应商逐个对账 · item 列表 <span class="tag blue" style="margin-left:8px">20 项 · 并发 5</span><span class="close">×</span></div>
+  <div class="bd" style="padding:0">
+    <div class="row" style="padding:10px 16px;border-bottom:1px solid var(--border);gap:12px"><span class="small">筛选：</span><span class="chip">全部 20</span><span class="chip" style="color:var(--success)">成功 11</span><span class="chip" style="color:var(--danger)">失败 1</span><span class="chip" style="color:var(--primary)">执行中 3</span><span class="chip" style="color:var(--purple)">等待审批 2</span><span class="chip">待执行 3</span><span class="spacer"></span><span class="muted small">每项是独立 Child Workflow，可下钻</span></div>
+    <div class="item-row" style="color:var(--text-3);font-weight:500;background:#fafbfd"><span>#</span><span>item（supplier）</span><span>状态</span><span>耗时</span><span>输出 / 错误</span></div>
+    <div id="itemRows"></div>
+  </div>
+</div></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/canvas.js"></script>
+<script>
+AF.renderShell({ active: 'runs', crumbs: ['运行监控', '采购月度对账', 'run_01J8QK7V…'] });
+
+var current = 'demo', run, dag, canvas, timer, t0 = Date.now(), selectedNode = null;
+function load(which) {
+  current = which;
+  run = JSON.parse(JSON.stringify(which === 'foreach' ? AF.runForeach : AF.runDemo));
+  dag = JSON.parse(JSON.stringify(which === 'foreach' ? AF.dagForeach : AF.dagDemo));
+  dag.nodes.forEach(function (n) { if (n.id === 'classify_diff') n.breakpoint = false; });
+  var wrap = document.getElementById('canvasWrap'); wrap.querySelectorAll('.canvas').forEach(function (c) { c.remove(); });
+  canvas = new AF.Canvas(wrap, dag, { mode: 'run', run: run, topInset: 30, onSelect: function (n) { selectedNode = n ? n.id : null; renderNode(n); } });
+  renderOverview(); renderNode(null); renderLog(); renderTimeline(); renderEvents();
+  var sel = document.getElementById('logNode'); sel.innerHTML = '<option value="">全部</option>' + dag.nodes.map(function (n) { return '<option>' + n.id + '</option>'; }).join('');
+  canvas.select(which === 'demo' ? 'approve_diff' : 'per_supplier');
+}
+document.getElementById('runSel').addEventListener('change', function (e) { load(e.target.value); });
+
+function renderOverview() {
+  var n = Object.values(run.nodes), done = n.filter(function (x) { return x.status === 'succeeded' || x.status === 'skipped'; }).length;
+  document.getElementById('runStatus').innerHTML = AF.stag(run.status);
+  document.getElementById('runMeta').textContent = 'v' + run.version + ' · ' + run.triggeredBy + ' · 开始 ' + run.startedAt;
+  document.getElementById('overview').innerHTML = '<div class="row" style="margin-bottom:8px"><b>运行概览</b><span class="spacer"></span><span class="mono muted small">' + run.workflowId + '</span></div>' +
+    '<div class="steps" style="margin-bottom:10px">' + dag.nodes.map(function (d) { var s = run.nodes[d.id]; var c = s ? { succeeded: 'ok', failed: 'fail', running: 'run', waiting_approval: 'wait', paused: 'fail' }[s.status] || '' : ''; return '<i class="' + c + '"></i>'; }).join('') + '</div>' +
+    '<dl class="kv"><dt>状态</dt><dd>' + AF.stag(run.status) + '</dd><dt>进度</dt><dd>' + done + ' / ' + dag.nodes.length + ' 节点完成</dd><dt>已运行</dt><dd id="elapsed">—</dd><dt>输入</dt><dd class="mono">' + AF.esc(JSON.stringify(run.input)) + '</dd><dt>上下文</dt><dd>' + (run.contextBytes / 1024).toFixed(1) + ' KB / 软限 256 KB <span class="progress" style="display:inline-block;width:80px;vertical-align:middle"><i style="width:' + Math.max(2, run.contextBytes / 262144 * 100) + '%"></i></span></dd><dt>Worker</dt><dd>engine-worker-1 · recon-worker-1/2</dd></dl>';
+}
+function renderNode(n) {
+  var el = document.getElementById('nodeDetail');
+  if (!n) { el.innerHTML = '<div class="hd">节点详情</div><div class="empty">点击画布节点查看输入 / 输出 / 日志 / 操作</div>'; return; }
+  var s = run.nodes[n.id] || { status: 'pending' }, t = n.nodeType ? AF.typeOf(n.nodeType) : null;
+  var html = '<div class="hd"><b>' + AF.esc(n.name) + '</b><span class="mono muted small">' + n.id + '</span><span class="spacer"></span>' + AF.stag(s.status) + '</div>';
+  html += '<div class="tabs" data-target="ndPanes"><button class="active" data-tab="概览">概览</button><button data-tab="输入">输入</button><button data-tab="输出">输出</button><button data-tab="日志">日志</button>' + (s.status === 'failed' || s.retried ? '<button data-tab="错误">错误</button>' : '') + '</div><div class="tabpanes" id="ndPanes">';
+  // 概览
+  html += '<div class="tabpane active" data-tab="概览">';
+  if (s.status === 'waiting_approval') html += '<div class="approval-box"><h4>等待人工审批 · 自 ' + s.waitingSince + '</h4><div class="small">审批人：' + s.assignees.join('；') + '</div><div class="small muted">截止 ' + s.dueAt + ' · 已推送企业微信 9 人 · 12h 提醒一次</div><div class="row" style="margin-top:8px"><button class="btn success sm" onclick="AF.modal(\'approveModal\')">去审批</button><button class="btn sm">催办</button><button class="btn sm">转办</button></div></div>';
+  if (n.kind === 'foreach' && s.total) html += '<div class="approval-box" style="border-color:#f3b28c;background:#fff7f2"><h4 style="color:#d9480f">for-each 进度 ' + (s.succeeded + s.failed) + ' / ' + s.total + '</h4><div class="progress" style="margin:6px 0"><i style="width:' + ((s.succeeded + s.failed) / s.total * 100) + '%;background:linear-gradient(90deg,var(--success) ' + (s.succeeded / (s.succeeded + s.failed) * 100) + '%,var(--danger) 0)"></i></div><div class="small">成功 ' + s.succeeded + ' · 失败 ' + s.failed + ' · 执行中 ' + s.running + ' · 待执行 ' + s.pending + ' · 并发 ' + n.concurrency + ' · onItemError=' + n.onItemError + '</div><div class="row" style="margin-top:8px"><button class="btn sm primary" onclick="openItems()">查看 item 列表</button><button class="btn sm">暂停调度</button></div></div>';
+  html += '<dl class="kv"><dt>类型</dt><dd class="mono">' + (n.nodeType || n.kind) + (t ? ' <span class="tag gray">' + t.lang + '</span>' : '') + '</dd><dt>尝试次数</dt><dd>' + (s.attempts || 0) + (n.retryPolicy ? ' / ' + n.retryPolicy.maximumAttempts : '') + '</dd><dt>耗时</dt><dd>' + (s.durationMs ? (s.durationMs / 1000).toFixed(1) + ' s' : '—') + '</dd><dt>队列</dt><dd class="mono">' + (t ? t.queue : 'dag-engine（Workflow 内）') + '</dd>' + (s.branch ? '<dt>命中分支</dt><dd><span class="tag orange">' + s.branch + '</span> total_abs_amount 32,320.35 &gt; threshold 10,000</dd>' : '') + (s.resumedFromBreakpoint ? '<dt>断点</dt><dd>曾在断点暂停，alice 于 14:03:24 恢复</dd>' : '') + '</dl>';
+  if (s.retried) html += '<div class="attempts"><span class="f">attempt 1 · ExternalServiceError · 2s</span><span class="f">attempt 2 · ExternalServiceError · 4s</span><span class="ok">attempt 3 · 成功 13.2s</span></div>';
+  html += '</div>';
+  var io = function (obj) { return obj ? '<table class="iotable">' + Object.keys(obj).map(function (k) { var v = obj[k]; var vs = typeof v === 'object' ? JSON.stringify(v) : String(v); return '<tr><td>' + k + '</td><td>' + (vs.indexOf('ref://') === 0 ? '<span class="ref">' + vs + '</span> <span class="muted">MinIO</span>' : AF.esc(vs).replace(/ref:\/\/artifact\/[^",}]+/g, function (m) { return '<span class="ref">' + m + '</span>'; })) + '</td></tr>'; }).join('') + '</table>' : '<div class="empty">尚无数据</div>'; };
+  html += '<div class="tabpane" data-tab="输入"><div class="muted small" style="margin-bottom:6px">渲染后的输入（模板已替换）· 完整内容 GET /runs/{id}/nodes/' + n.id + '/io</div>' + io(s.input || (n.kind === 'task' ? null : n.inputs)) + '</div>';
+  html += '<div class="tabpane" data-tab="输出"><div class="muted small" style="margin-bottom:6px">写入 context.' + (n.outputKey || n.id) + '；大对象为 artifact 引用</div>' + io(s.output) + '</div>';
+  html += '<div class="tabpane" data-tab="日志"><div class="log" style="height:260px;border-radius:6px">' + run.logs.filter(function (l) { return l[1] === n.id; }).map(logLine).join('') + '</div></div>';
+  if (s.status === 'failed' || s.retried) html += '<div class="tabpane" data-tab="错误"><div class="err-box">ExternalServiceError: MinIO 连接超时\n  type=ExternalServiceError non_retryable=false\n  attempts=2 failed → RetryPolicy(initial=PT2S, backoff=2.0)\n  worker=recon-worker-1@host-a</div></div>';
+  html += '</div>';
+  // 操作
+  html += '<div class="actions">';
+  if (s.status === 'paused' || s.status === 'failed') html += '<button class="btn primary sm" onclick="AF.modal(\'actionModal\')">重试</button><button class="btn sm">跳过</button><button class="btn danger sm">终止</button>';
+  if (s.status === 'waiting_approval') html += '<button class="btn success sm" onclick="AF.modal(\'approveModal\')">审批</button>';
+  if (s.status === 'pending') html += '<button class="btn sm" onclick="AF.toast(\'已设置运行时断点 set_breakpoints(add=' + n.id + ')\')">⏺ 打断点</button>';
+  if (s.status === 'running') html += '<button class="btn sm" onclick="AF.modal(\'actionModal\')">模拟失败暂停</button>';
+  html += '<button class="btn ghost sm" onclick="AF.toast(\'已复制 curl\')">复制 IO</button><button class="btn ghost sm">Temporal 事件 ↗</button></div>';
+  el.innerHTML = html; AF.tabs(el);
+}
+function logLine(l) { return '<div class="l"><span class="t">' + l[0] + '</span><span class="n">' + l[1] + '</span><span class="lv ' + l[2] + '">' + l[2].toUpperCase() + '</span><span class="m">' + AF.esc(l[3]).replace(/(\w+)=([^\s,}]+)/g, '$1=<span class="f">$2</span>') + '</span></div>'; }
+function renderLog() {
+  var node = document.getElementById('logNode').value, lv = document.getElementById('logLevel').value;
+  var el = document.getElementById('log'); el.innerHTML = run.logs.filter(function (l) { return (!node || l[1] === node) && (!lv || l[2] === lv); }).map(logLine).join('');
+  if (document.getElementById('autoscroll').classList.contains('on')) el.scrollTop = el.scrollHeight;
+}
+document.getElementById('logNode').addEventListener('change', renderLog); document.getElementById('logLevel').addEventListener('change', renderLog);
+function renderEvents() {
+  var ev = [['run.started', 'run', '{flow_key, version, input}'], ['node.started', 'fetch_docs', '{input_preview}'], ['node.progress', 'fetch_docs', '{percent: 41, detail: "erp_po: 500 rows"}'], ['node.succeeded', 'fetch_docs', '{output_preview, output_ref, duration_ms: 41600}'], ['node.started', 'match_diff', '{attempt: 1}'], ['node.failed', 'match_diff', '{error_type: ExternalServiceError, attempt: 1, will_retry: true}'], ['node.failed', 'match_diff', '{attempt: 2, will_retry: true}'], ['node.succeeded', 'match_diff', '{attempt: 3, duration_ms: 26300}'], ['node.paused', 'classify_diff', '{reason: breakpoint}'], ['node.resumed', 'classify_diff', '{operator: alice}'], ['node.succeeded', 'classify_diff', '{}'], ['node.branch', 'is_big_diff', '{matched: big}'], ['approval.requested', 'approve_diff', '{assignees_expr, title, due_at}'], ['notification.sent', 'approve_diff', '{channel: wecom-default, recipients: 9}']];
+  document.getElementById('events').innerHTML = ev.map(function (e, i) { return '<div class="l"><span class="t">seq ' + (i + 1) + '</span><span class="n">' + e[1] + '</span><span class="lv info" style="width:150px">' + e[0] + '</span><span class="m">' + AF.esc(e[2]) + '</span></div>'; }).join('');
+}
+function renderTimeline() {
+  var total = 80, el = document.getElementById('timeline'), html = '<div class="tl-axis"><div></div><div><span>14:02:11</span><span>+20s</span><span>+40s</span><span>+60s</span><span>+80s</span></div></div>';
+  dag.nodes.forEach(function (n) { var s = run.nodes[n.id]; if (!s || s.status === 'pending' || s.start === undefined) return; var end = s.end !== undefined ? s.end : total; var color = { succeeded: 'var(--success)', running: 'var(--primary)', waiting_approval: 'var(--purple)', failed: 'var(--danger)' }[s.status]; html += '<div class="tl-row"><span class="nm">' + AF.esc(n.name) + '</span><div class="tl-bar"><i style="left:' + (s.start / total * 100) + '%;width:' + Math.max(0.6, (end - s.start) / total * 100) + '%;background:' + color + '"></i></div></div>'; });
+  el.innerHTML = html;
+}
+function openItems() { var rows = AF.runForeach.items.map(function (it, i) { return '<div class="item-row" onclick="AF.toast(\'下钻子运行 run:…:per_supplier:' + i + '\')"><span class="mono muted">' + i + '</span><span class="mono">' + it[0] + '</span><span>' + AF.stag(it[1]) + '</span><span class="mono">' + it[2] + '</span><span class="' + (it[1] === 'failed' ? 'mono' : 'muted') + '" style="' + (it[1] === 'failed' ? 'color:var(--danger)' : '') + '">' + AF.esc(it[3]) + '</span></div>'; }).join(''); document.getElementById('itemRows').innerHTML = rows; AF.modal('itemsModal'); }
+document.addEventListener('click', function (e) { if (e.target.dataset && e.target.dataset.items) { e.preventDefault(); openItems(); } });
+
+/* 审批决策 → 模拟 Signal 后的流转 */
+function decide(decision) {
+  AF.modal('approveModal', false); AF.toast('已发送 Signal approve(approve_diff, ' + decision + ', alice)');
+  var now = new Date(), ts = function () { var d = new Date(); return d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0'); };
+  run.nodes.approve_diff = { status: 'succeeded', attempts: 1, start: 75, end: 78, durationMs: 3740000, output: { decision: decision, operator: 'alice', comment: '漏单 11 笔下期补录', form: { adjustment: '以供应商为准' }, decided_at: now.toISOString() } };
+  run.logs.push([ts(), 'approve_diff', 'info', 'approval.decided decision=' + decision + ' operator=alice strategy=any']);
+  if (decision === 'approved') {
+    run.edgesDone.push('e6_approved'); run.nodes.gen_report = { status: 'running', attempts: 1, start: 78 }; run.status = 'running';
+    run.logs.push([ts(), 'gen_report', 'info', 'attempt=1 渲染输入 diff_summary/classified/approval → 生成 xlsx']);
+    canvas.run = run; canvas.render(); renderOverview(); renderLog(); renderTimeline(); canvas.select('gen_report');
+    setTimeout(function () {
+      run.nodes.gen_report = { status: 'succeeded', attempts: 1, start: 78, end: 80, durationMs: 2100, input: { period: '2026-08', supplier_id: 'SUP-0002', approval: '{decision: approved…}' }, output: { ref: 'ref://artifact/c0de…88', summary_text: 'SUP-0002 2026-08 差异 23 笔，已按供应商对账单调整' } };
+      run.edgesDone.push('e9'); run.nodes.end_ok = { status: 'succeeded', start: 80, end: 80.1 }; run.status = 'succeeded';
+      run.logs.push([ts(), 'gen_report', 'info', '报告已生成 ref=ref://artifact/c0de…88 (xlsx 84KB → MinIO)']);
+      run.logs.push([ts(), 'run', 'info', 'run.finished status=success end_node=end_ok outputs={report_ref, diff_count:23, decision:approved}']);
+      run.logs.push([ts(), 'run', 'info', 'notification.sent channel=wecom-default type=run.finished recipients=1 (alice)']);
+      canvas.run = run; canvas.render(); renderOverview(); renderLog(); renderTimeline(); canvas.select('end_ok');
+    }, 2500);
+  } else {
+    run.edgesDone.push('e6_rejected'); run.nodes.end_rejected = { status: 'succeeded', start: 78, end: 78.1 }; run.status = 'failed';
+    run.logs.push([ts(), 'run', 'info', 'run.finished status=failed end_node=end_rejected reason=运营驳回']);
+    canvas.run = run; canvas.render(); renderOverview(); renderLog(); renderTimeline();
+  }
+}
+
+/* 模拟 SSE 心跳 */
+setInterval(function () {
+  var sec = Math.floor((Date.now() - t0) / 1000), h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  var e = document.getElementById('elapsed'); if (e) e.textContent = '1h 0' + (2 + m) + 'm ' + String(s).padStart(2, '0') + 's（自 14:02:11）';
+  document.getElementById('live').textContent = 'SSE 已连接 · 最近事件 ' + (s % 5 + 0.3).toFixed(1) + 's 前';
+  if (current === 'foreach' && s % 6 === 0) { var d = new Date(); run.logs.push([d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0'), 'per_supplier', 'debug', 'heartbeat item[' + (11 + (s % 3)) + '] SUP-00' + (12 + (s % 3)) + ' ' + ['fetch_documents 500 rows', 'match_and_diff loading batches', 'classify_diff rules 12/23'][s % 3]]); renderLog(); }
+}, 1000);
+
+document.getElementById('zIn').addEventListener('click', function () { canvas.zoom(1.15); });
+document.getElementById('zOut').addEventListener('click', function () { canvas.zoom(0.87); });
+document.getElementById('zFit').addEventListener('click', function () { canvas.fit(); });
+AF.tabs(document.querySelector('.bottom'));
+load(/foreach/.test(location.hash) ? 'foreach' : 'demo');
+if (/foreach/.test(location.hash)) document.getElementById('runSel').value = 'foreach';
+if (/approve/.test(location.hash)) AF.modal('approveModal');
+if (/items/.test(location.hash)) openItems();
+</script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<title>待审批 · Agent Foundation</title>
+<link rel="stylesheet" href="assets/app.css"/>
+<style>
+  .layout{display:grid;grid-template-columns:400px 1fr;gap:16px;height:calc(100vh - 52px - 40px)}
+  .list{display:flex;flex-direction:column;min-height:0}
+  .list .items{overflow:auto;flex:1}
+  .ap{padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer}
+  .ap:hover{background:#fafbfe}.ap.active{background:var(--primary-50);border-left:3px solid var(--primary)}
+  .ap .t{font-weight:600;margin-bottom:4px}
+  .ap .m{color:var(--text-3);font-size:12px;display:flex;gap:8px;align-items:center}
+  .sev{width:6px;height:6px;border-radius:50%;display:inline-block}
+  .detail{display:flex;flex-direction:column;min-height:0}
+  .detail .bd{overflow:auto;flex:1}
+  .detail .ft{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;background:#fafbfd}
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+  <main class="main"><div class="page" style="padding-bottom:0">
+    <div class="layout">
+      <div class="card list">
+        <div class="hd">待我审批<span class="tag purple">3</span><span class="spacer"></span><select class="in" style="width:110px;height:26px;font-size:12px"><option>待处理</option><option>已处理</option><option>全部</option></select></div>
+        <div class="items" id="items"></div>
+        <div style="padding:10px 14px;border-top:1px solid var(--border);font-size:12px;color:var(--text-3)">审批人来自组织架构解析快照；转办 / 催办会写入审计日志</div>
+      </div>
+      <div class="card detail" id="detail"></div>
+    </div>
+  </div></main>
+</div>
+<script src="assets/data.js"></script>
+<script src="assets/app.js"></script>
+<script>
+AF.renderShell({ active: 'approvals', crumbs: ['待审批'] });
+var sel = AF.approvals[0].id;
+function renderList() {
+  document.getElementById('items').innerHTML = AF.approvals.map(function (a) {
+    var c = { high: 'var(--danger)', medium: 'var(--warning)', low: 'var(--text-4)' }[a.severity];
+    return '<div class="ap' + (a.id === sel ? ' active' : '') + '" data-id="' + a.id + '"><div class="t"><span class="sev" style="background:' + c + ';margin-right:6px"></span>' + a.title + '</div><div class="m"><span>' + a.flow + '</span><span>·</span><span>' + a.node + '</span></div><div class="m" style="margin-top:4px"><span class="tag purple">等待 ' + a.waited + '</span><span>截止 ' + a.dueAt + '</span><span>策略 ' + a.strategy + '</span></div></div>';
+  }).join('');
+  document.querySelectorAll('.ap').forEach(function (el) { el.addEventListener('click', function () { sel = el.dataset.id; renderList(); renderDetail(); }); });
+}
+function renderDetail() {
+  var a = AF.approvals.find(function (x) { return x.id === sel; });
+  document.getElementById('detail').innerHTML = '<div class="hd">' + a.title + '<span class="tag purple" style="margin-left:8px">等待审批 ' + a.waited + '</span><span class="spacer"></span><a class="btn sm" href="run.html">查看运行 ↗</a></div>' +
+    '<div class="bd" style="padding:18px"><div class="grid" style="grid-template-columns:1fr 320px;gap:20px"><div>' +
+    '<dl class="kv" style="grid-template-columns:90px 1fr;margin-bottom:14px"><dt>流程 / 节点</dt><dd>' + a.flow + ' › ' + a.node + '</dd><dt>运行</dt><dd class="mono">' + a.run + '</dd><dt>发起</dt><dd>' + a.requestedAt + ' · 截止 ' + a.dueAt + '</dd><dt>审批人</dt><dd>' + a.assignees.join('；') + '<br/><span class="muted">策略 ' + a.strategy + (a.strategy === 'all' ? ' · 需全部通过（已 0/2）' : ' · 任一人通过即通过') + '</span></dd><dt>附件</dt><dd>' + a.attachments.map(function (x) { return '<span class="ref">' + x + '</span>'; }).join(' · ') + '</dd></dl>' +
+    '<div class="card" style="box-shadow:none;margin-bottom:14px"><div class="hd" style="font-size:12px;padding:8px 12px">摘要（由节点模板渲染）</div><div class="bd" style="padding:12px;color:var(--text-2)">' + a.summary + '</div></div>' +
+    (a.id === 'ap_1' ? '<table class="iotable" style="margin-bottom:14px"><tr><td>单号</td><td>类型</td><td>ERP</td><td>对账单</td><td>差异</td></tr><tr><td class="mono">PO-2608-0113</td><td>单价差</td><td>12,400.00</td><td>12,640.00</td><td style="color:var(--danger)">+240.00</td></tr><tr><td class="mono">PO-2608-0141</td><td>漏单（ERP 缺）</td><td>—</td><td>8,900.00</td><td style="color:var(--danger)">+8,900.00</td></tr><tr><td class="mono">PO-2608-0155</td><td>数量差</td><td>3,200.00</td><td>2,880.00</td><td style="color:var(--success)">-320.00</td></tr><tr><td colspan="5" class="muted">… 其余 20 行见附件（MinIO 预签名预览）</td></tr></table>' : '') +
+    '<div class="field"><label>调整方式<span class="req">*</span></label><select class="in"><option>以ERP为准</option><option>以供应商为准</option><option>下期处理</option></select></div><div class="field"><label>处理意见</label><textarea class="in" rows="3" placeholder="将写入 context.approval.comment，供后续节点与报告使用"></textarea></div>' +
+    '</div><div><div class="muted small" style="margin-bottom:6px">通知记录</div><div class="wecom-card" style="width:100%"><div class="ch"><i></i>企业微信 · wecom-default · ' + a.requestedAt + '</div><div class="cb"><h4>对账差异待确认</h4><dl class="kv"><dt>流程</dt><dd>' + a.flow + '</dd><dt>差异</dt><dd>' + a.summary.split('。')[0] + '</dd><dt>截止</dt><dd>' + a.dueAt + '</dd></dl></div><div class="cf"><span>去审批</span><span>›</span></div></div>' +
+    '<div class="small" style="margin-top:12px"><div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span>' + a.requestedAt + ' 推送 9 人</span><span class="tag green">成功</span></div><div class="row" style="justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)"><span>12h 后提醒</span><span class="tag gray">计划</span></div><div class="row" style="justify-content:space-between;padding:6px 0"><span>超时（P3D）→ timeout 出边</span><span class="tag gray">计划</span></div></div>' +
+    '<div class="muted small" style="margin-top:14px">审批决策以 Temporal Signal 送达 Workflow；跨 Worker 重启、跨天有效。非审批人操作将被拒绝（403）。</div></div></div></div>' +
+    '<div class="ft"><button class="btn" onclick="AF.toast(\'已催办：再次推送给 9 位审批人\')">催办</button><button class="btn" onclick="AF.toast(\'已转办给 bob（写入审计）\')">转办</button><span class="spacer"></span><button class="btn danger" onclick="done(\'驳回\')">驳回</button><button class="btn success" onclick="done(\'通过\')">通过</button></div>';
+}
+function done(d) { AF.toast('已' + d + ' · Signal approve 已发送'); AF.approvals = AF.approvals.filter(function (x) { return x.id !== sel; }); if (AF.approvals.length) { sel = AF.approvals[0].id; renderList(); renderDetail(); } else { document.getElementById('items').innerHTML = '<div class="empty">没有待审批事项</div>'; document.getElementById('detail').innerHTML = '<div class="empty" style="padding:80px">全部处理完毕</div>'; } }
+renderList(); renderDetail();
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<title>版本管理 · 采购月度对账 · Agent Foundation</title>
+<link rel="stylesheet" href="assets/app.css"/>
+<style>
+  .vrow td:first-child{font-weight:600}
+  .vline{position:relative;padding-left:18px}
+  .vline::before{content:"";position:absolute;left:5px;top:-14px;bottom:-14px;width:2px;background:var(--border)}
+  .vline i{position:absolute;left:0;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;border:2px solid var(--border-strong);background:#fff}
+  .vline i.cur{border-color:var(--success);background:var(--success)}
+  .vline i.draft{border-color:var(--warning);background:#fff;border-style:dashed}
+  .tbl td,.tbl th{white-space:nowrap}.tbl td:nth-child(3){white-space:normal;min-width:180px}.tbl td:nth-child(4){white-space:normal}
+  .subnote{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:#fafbfd;font-size:12px}
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+  <main class="main"><div class="page">
+    <div class="row" style="margin-bottom:16px"><h2 style="margin:0;font-size:18px">采购月度对账</h2><span class="mono muted">recon.purchase_monthly</span><span class="tag green">当前 v3</span><span class="tag orange">草稿 v4</span><span class="spacer"></span><a class="btn" href="editor.html">打开草稿</a><button class="btn primary" onclick="AF.modal('publishModal')">发布草稿 v4</button></div>
+
+    <div class="grid" style="grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:16px;align-items:start">
+      <div class="card"><div class="hd">版本历史<span class="spacer"></span><span class="muted small">发布不可变 · 运行绑定版本 · 回滚 = 复制旧版本发布为新版本</span></div>
+        <table class="tbl"><thead><tr><th>版本</th><th>状态</th><th>说明</th><th>发布人 / 时间</th><th>运行数</th><th></th></tr></thead><tbody id="vrows"></tbody></table>
+        <div style="padding:12px 16px;border-top:1px solid var(--border)"><div class="subnote"><span class="tag blue">子流程锁定</span><span>本流程未引用子流程。被 <b>采购月度对账 · 全部供应商 v1</b> 作为 for-each 循环体引用，锁定 <b>v3</b>；发布 v4 后该父流程需重新发布才会采用（版本页会提示）。</span></div></div>
+      </div>
+      <div class="card"><div class="hd">版本对比<span class="spacer"></span><select class="in" style="width:120px;height:26px;font-size:12px"><option>v3（当前）</option></select><span class="muted">→</span><select class="in" style="width:120px;height:26px;font-size:12px"><option>v4（草稿）</option></select></div>
+        <div class="bd">
+          <div class="row" style="margin-bottom:10px;gap:6px"><span class="tag green">+1 节点</span><span class="tag red">−0 节点</span><span class="tag orange">2 修改</span><span class="tag blue">+2 边</span><span class="spacer"></span><a href="#" class="small">画布并排预览</a></div>
+          <div class="card" style="box-shadow:none;margin-bottom:12px"><div class="hd" style="font-size:12px;padding:8px 12px">变更摘要（业务可读）</div><div class="bd" style="padding:10px 12px;font-size:12.5px;line-height:1.8">
+            <div>分支 <b>是否大额差异</b> · case <span class="mono">big</span>：阈值 <span class="tag red">{{input.threshold}}</span> → <span class="tag green">50000</span></div>
+            <div>分支 <b>是否大额差异</b> · 新增 case <span class="mono">sup_a</span>：<span class="mono">input.supplier_id eq "SUP-A"</span> → 运营确认大额差异（供应商 A 全部人工确认）</div>
+            <div>新增节点 <b>通知供应商</b>（子流程 common.notify_supplier@published → 固化 v9）接在 生成对账报告 之后</div>
+            <div>节点 <b>差异分类</b>：移除设计期断点</div>
+          </div></div>
+          <div class="diff">
+            <div class="col"><h5>v3</h5>
+<div class="ln ctx">"cases": [</div><div class="ln ctx">  { "id": "big", "when": { "all": [</div><div class="ln ctx">    { "left": "{{context.diff.count}}", "op": "gt", "right": 0 },</div><div class="ln del">    { "left": "{{context.diff.total_abs_amount}}", "op": "gt", "right": "{{input.threshold}}" }</div><div class="ln ctx">  ] } },</div><div class="ln ctx">  { "id": "small", ... }</div><div class="ln ctx">],</div><div class="ln ctx">"default": "none"</div><div class="ln ctx">...</div><div class="ln ctx">{ "id": "classify_diff",</div><div class="ln del">  "breakpoint": true }</div></div>
+            <div class="col"><h5>v4（草稿）</h5>
+<div class="ln ctx">"cases": [</div><div class="ln add">  { "id": "sup_a", "label": "供应商 A 全部人工", "when":</div><div class="ln add">    { "left": "{{input.supplier_id}}", "op": "eq", "right": "SUP-A" } },</div><div class="ln ctx">  { "id": "big", "when": { "all": [</div><div class="ln ctx">    { "left": "{{context.diff.count}}", "op": "gt", "right": 0 },</div><div class="ln add">    { "left": "{{context.diff.total_abs_amount}}", "op": "gt", "right": 50000 }</div><div class="ln ctx">  ] } },</div><div class="ln ctx">  { "id": "small", ... }</div><div class="ln ctx">],</div><div class="ln ctx">"default": "none"</div><div class="ln ctx">...</div><div class="ln ctx">{ "id": "classify_diff",</div><div class="ln add">  "breakpoint": false }</div><div class="ln add">{ "id": "notify_supplier", "kind": "subflow",</div><div class="ln add">  "flowKey": "common.notify_supplier", "flowVersion": "published" }</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></main>
+</div>
+
+<div class="modal-mask" id="rollbackModal"><div class="modal" style="width:520px">
+  <div class="hd">回滚到 v2 <span class="close">×</span></div>
+  <div class="bd"><p style="margin:0 0 12px">将以 <b>v2</b> 的 DAG 内容创建并发布新版本 <b>v5</b>（based_on = v2），当前版本指向 v5。历史保持线性，可再次回滚。</p>
+    <div class="kv" style="margin-bottom:12px"><dt>影响</dt><dd>新运行使用 v5；<b>进行中的 3 个运行不受影响</b>（仍绑定各自版本）</dd><dt>子流程</dt><dd>无</dd><dt>校验</dt><dd><span class="tag green">v2 内容在当前注册中心下校验通过</span></dd></div>
+    <div class="field"><label>回滚说明<span class="req">*</span></label><input class="in" value="v3 差异分类节点在 SUP-0005 文件缺列时误判，先回退"/></div></div>
+  <div class="ft"><button class="btn close">取消</button><button class="btn primary" onclick="AF.modal('rollbackModal',false);AF.toast('已回滚：发布 v5（基于 v2），当前版本 → v5')">确认回滚</button></div>
+</div></div>
+
+<div class="modal-mask" id="publishModal"><div class="modal" style="width:520px">
+  <div class="hd">发布草稿 v4 <span class="close">×</span></div>
+  <div class="bd"><div class="kv" style="margin-bottom:12px"><dt>校验</dt><dd><span class="tag green">0 错误</span> <span class="tag orange">1 警告</span></dd><dt>子流程固化</dt><dd>common.notify_supplier published → <b>v9</b></dd></div><div class="field"><label>版本说明<span class="req">*</span></label><textarea class="in" rows="3">供应商 SUP-A 全部人工确认；大额阈值改为 50,000；报告后通知供应商</textarea></div><label class="row"><span class="switch on"></span> 发布后自动创建新草稿</label></div>
+  <div class="ft"><button class="btn close">取消</button><button class="btn primary" onclick="AF.modal('publishModal',false);AF.toast('已发布 v4')">确认发布</button></div>
+</div></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/app.js"></script>
+<script>
+AF.renderShell({ active: 'versions', crumbs: ['流程', '采购月度对账', '版本管理'] });
+document.getElementById('vrows').innerHTML = AF.versions.map(function (v) {
+  var st = v.status === 'draft' ? '<span class="tag orange">草稿</span>' : v.status === 'archived' ? '<span class="tag gray">已归档</span>' : v.current ? '<span class="tag green">当前发布</span>' : '<span class="tag blue">已发布</span>';
+  var act = v.status === 'draft' ? '<a class="btn sm" href="editor.html">编辑</a>' : v.current ? '<button class="btn sm ghost" disabled>当前</button><button class="btn sm">新建草稿</button>' : '<button class="btn sm" onclick="AF.modal(\'rollbackModal\')">回滚到此版本</button><button class="btn sm ghost">对比</button>';
+  return '<tr class="vrow"><td><div class="vline"><i class="' + (v.current ? 'cur' : v.status === 'draft' ? 'draft' : '') + '"></i>v' + v.v + '</div></td><td>' + st + '</td><td>' + v.note + '</td><td class="muted">' + v.by + ' · ' + v.at + '</td><td class="num">' + v.runs + '</td><td><div class="row">' + act + '</div></td></tr>';
+}).join('');
+</script>
+</body>
+</html>

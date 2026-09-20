@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<title>画布编辑器 · 采购月度对账 · Agent Foundation</title>
+<link rel="stylesheet" href="assets/app.css"/>
+<style>
+  .editor-toolbar .ver{font-size:12px;color:var(--text-3)}
+  .inspector .sc{padding:0}
+  .inspector .tabpane{padding:12px}
+  .inspector .sect{font-size:11px;color:var(--text-3);margin:14px 0 8px;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
+  .inspector .sect::after{content:"";flex:1;height:1px;background:var(--border)}
+  .varpick{display:flex;gap:4px}
+  .varpick .btn{height:30px;padding:0 8px}
+  .defaults{font-size:11px;color:var(--text-3);display:flex;gap:10px;margin-top:-6px;margin-bottom:10px}
+  .defaults b{color:var(--text-2);font-weight:500}
+  .sel-none{padding:40px 20px;text-align:center;color:var(--text-3)}
+  .sel-none .k{display:inline-block;margin-top:10px}
+  .flowswitch{display:flex;gap:2px;background:var(--gray-bg);padding:2px;border-radius:6px}
+  .flowswitch button{border:0;background:none;padding:4px 10px;border-radius:5px;font-size:12px;cursor:pointer;color:var(--text-2)}
+  .flowswitch button.on{background:#fff;color:var(--text);box-shadow:var(--shadow);font-weight:500}
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+  <main class="main" style="display:flex;flex-direction:column;overflow:hidden">
+    <div class="toolbar editor-toolbar">
+      <span class="title" id="flowTitle">采购月度对账</span>
+      <span class="tag orange" id="verTag">草稿 v4</span><span class="ver" id="verNote">基于 v3（当前发布）· 最后保存 13:42 · alice</span>
+      <div class="flowswitch" style="margin-left:12px"><button class="on" data-flow="demo">单供应商 Demo</button><button data-flow="foreach">全部供应商 · for-each</button></div>
+      <span class="spacer"></span>
+      <button class="btn" id="btnValidate">校验</button>
+      <button class="btn" id="btnJson">DAG JSON</button>
+      <span class="sep"></span>
+      <button class="btn" id="btnSave">保存草稿</button>
+      <button class="btn primary" id="btnPublish">发布</button>
+      <button class="btn success" id="btnRun">▶ 运行</button>
+    </div>
+    <div class="three" style="position:relative">
+      <!-- 节点面板 -->
+      <aside class="side palette">
+        <div class="hd">节点面板 <span class="muted small" style="font-weight:400">来自注册中心</span></div>
+        <div style="padding:8px 12px 0"><input class="in" placeholder="搜索节点 / 类型…" id="paletteSearch"/></div>
+        <div class="sc" id="palette"></div>
+      </aside>
+      <!-- 画布 -->
+      <section id="canvasWrap" style="position:relative">
+        <div class="legend"><span><kbd>拖拽</kbd> 移动节点</span><span><kbd>拖出连接桩</kbd> 连线</span><span><kbd>Ctrl+滚轮</kbd> 缩放</span><span><kbd>Del</kbd> 删除</span></div>
+        <div class="canvas-tools"><button id="zIn">+</button><button id="zOut">−</button><button id="zFit" title="适应">⤢</button></div>
+        <div class="minimap" id="minimap"></div>
+        <div class="drawer" id="drawer">
+          <div class="hd"><b>校验问题</b><span class="tag red" id="errCnt">0 错误</span><span class="tag orange" id="warnCnt">2 警告</span><span class="spacer"></span><span class="muted">保存时后端二次校验 · 点击问题定位节点</span><button class="btn ghost sm" id="drawerToggle">收起</button></div>
+          <div class="bd" id="issues"></div>
+        </div>
+      </section>
+      <!-- 属性面板 -->
+      <aside class="side right inspector" id="inspector">
+        <div class="hd" id="inspHd">属性面板</div>
+        <div class="sc" id="inspBody"><div class="sel-none">在画布上选择一个节点<br/>或从左侧面板拖入新节点<div class="k"><kbd>Ctrl</kbd> + <kbd>K</kbd> 快速添加</div></div></div>
+      </aside>
+    </div>
+  </main>
+</div>
+
+<!-- JSON modal -->
+<div class="modal-mask" id="jsonModal"><div class="modal" style="width:820px">
+  <div class="hd">DAG JSON <span class="tag blue" style="margin-left:8px">schemaVersion 1.0</span><span class="tag green" style="margin-left:4px">通过 dag.schema.json 校验</span><span class="close">×</span></div>
+  <div class="bd"><div class="codebox" id="jsonBox" style="max-height:60vh"></div></div>
+  <div class="ft"><button class="btn" onclick="AF.toast('已复制到剪贴板')">复制</button><button class="btn" onclick="AF.toast('已下载 recon.purchase_monthly.dag.json')">下载</button><button class="btn primary close">关闭</button></div>
+</div></div>
+
+<!-- Publish modal -->
+<div class="modal-mask" id="publishModal"><div class="modal" style="width:520px">
+  <div class="hd">发布新版本 <span class="close">×</span></div>
+  <div class="bd">
+    <div class="kv" style="margin-bottom:14px"><dt>流程</dt><dd>采购月度对账 <span class="mono muted">recon.purchase_monthly</span></dd><dt>版本</dt><dd>草稿 → <b>v4</b>（当前发布 v3）</dd><dt>校验</dt><dd><span class="tag green">0 错误</span> <span class="tag orange">2 警告</span></dd><dt>子流程锁定</dt><dd>—</dd></div>
+    <div class="field"><label>版本说明<span class="req">*</span></label><textarea class="in" rows="3">供应商 SUP-A 全部人工确认；大额阈值改为 50,000</textarea></div>
+    <div class="field"><label class="row"><span class="switch on"></span> 发布后自动创建新草稿（基于 v4）</label></div>
+    <div class="muted small">发布后版本不可变；进行中的运行仍绑定各自版本。运行时将编译为 ExecutionPlan 并固化子流程版本。</div>
+  </div>
+  <div class="ft"><button class="btn close">取消</button><button class="btn primary" onclick="AF.modal('publishModal',false);AF.toast('已发布 v4，当前版本指向 v4')">确认发布</button></div>
+</div></div>
+
+<!-- Run modal -->
+<div class="modal-mask" id="runModal"><div class="modal" style="width:520px">
+  <div class="hd">运行流程 <span class="close">×</span></div>
+  <div class="bd">
+    <div class="muted small" style="margin-bottom:12px">输入参数由 <span class="mono">variables</span> Schema 生成；运行绑定版本 <b>v3（当前发布）</b></div>
+    <div class="field"><label>对账期间<span class="req">*</span></label><input class="in" value="2026-08"/></div>
+    <div class="field"><label>供应商编码<span class="req">*</span></label><input class="in" value="SUP-0002"/></div>
+    <div class="field"><label>大额差异阈值(元)</label><input class="in" value="10000"/></div>
+    <div class="field"><label>运行时断点（可选）</label><div class="row" style="flex-wrap:wrap"><span class="chip">classify_diff <span class="x">×</span></span><button class="btn sm ghost">+ 添加</button></div></div>
+  </div>
+  <div class="ft"><button class="btn close">取消</button><button class="btn success" onclick="location.href='run.html'">▶ 启动并打开监控</button></div>
+</div></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/canvas.js"></script>
+<script>
+AF.renderShell({ active: 'editor', crumbs: ['流程', '采购月度对账', '画布编辑器'] });
+
+var dag = JSON.parse(JSON.stringify(AF.dagDemo));
+var canvas = new AF.Canvas(document.getElementById('canvasWrap'), dag, {
+  mode: 'edit', bottomInset: 160, topInset: 30, onSelect: renderInspector,
+  onChange: function (kind) { markDirty(); if (kind === 'add' || kind === 'remove' || kind === 'connect') validate(); },
+  onDrop: function (item, x, y) {
+    var id = (item.type ? item.type.split('@')[0].split('.').pop() : item.kind) + '_' + Math.floor(Math.random() * 900 + 100);
+    var n = { id: id, kind: item.kind, name: item.name, position: { x: x, y: y } };
+    if (item.kind === 'task') { var t = AF.typeOf(item.type); n.nodeType = item.type; n.inputs = {}; Object.keys(t.inputs).forEach(function (k) { n.inputs[k] = ''; }); n.config = JSON.parse(JSON.stringify(t.config)); n.outputKey = id; n.retryPolicy = t.retry; n.timeouts = t.timeouts; n.onError = { action: 'pause' }; }
+    if (item.kind === 'branch') { n.cases = [{ id: 'case_1', label: '条件 1', when: { left: '{{context.}}', op: 'gt', right: 0 } }]; n.default = 'default'; n.evaluation = 'first_match'; }
+    if (item.kind === 'approval') { n.assignees = { roles: [], departments: [], users: [], dynamic: [], strategy: 'any' }; n.title = ''; n.summary = ''; n.timeout = 'P3D'; n.onTimeout = 'route'; n.outputKey = id; }
+    if (item.kind === 'assign') n.assignments = [{ target: 'context.flag', value: true }];
+    if (item.kind === 'subflow') { n.flowKey = 'common.notify_supplier'; n.flowVersion = 'published'; n.inputs = {}; }
+    if (item.kind === 'foreach') { n.items = '{{context.}}'; n.itemAlias = 'item'; n.concurrency = 1; n.maxItems = 1000; n.batchSize = 200; n.body = { type: 'task', nodeType: 'recon.match_and_diff@1', inputs: {} }; n.onItemError = 'continue'; n.collect = { mode: 'list', fields: [], outputKey: id + '_results' }; }
+    if (item.kind === 'end') n.status = 'success';
+    canvas.addNode(n);
+  }
+});
+
+/* ---------- palette ---------- */
+function renderPalette(q) {
+  q = (q || '').toLowerCase();
+  var groups = {}; AF.nodeTypes.forEach(function (t) { if (q && (t.name + (t.type || '') + t.category).toLowerCase().indexOf(q) < 0) return; (groups[t.category] = groups[t.category] || []).push(t); });
+  var html = '';
+  Object.keys(groups).forEach(function (g) {
+    html += '<div class="grp"><h4>' + g + '<span class="cnt">' + groups[g].length + '</span></h4>';
+    groups[g].forEach(function (t) {
+      var color = { start: '#22a06b', end: '#1f2329', branch: '#f28c1a', approval: '#7c3aed', assign: '#8b93a7', subflow: '#0f9db5', foreach: '#d9480f' }[t.kind] || (t.lang === 'python' ? '#3776ab' : 'var(--primary)');
+      html += '<div class="pitem' + (t.workers === 0 ? ' offline' : '') + '" draggable="true" data-item=\'' + JSON.stringify({ kind: t.kind, type: t.type, name: t.name }).replace(/'/g, '&#39;') + '\'><span class="ico" style="background:' + color + '">' + t.abbr + '</span><div><div class="t">' + t.name + '</div><div class="k">' + (t.type || t.kind) + (t.workers === 0 ? ' · Worker 离线' : '') + '</div></div>' + (t.lang ? '<span class="lang">' + t.lang + '</span>' : '') + '</div>';
+    });
+    html += '</div>';
+  });
+  document.getElementById('palette').innerHTML = html;
+  document.querySelectorAll('.pitem').forEach(function (p) { p.addEventListener('dragstart', function (e) { e.dataTransfer.setData('text/plain', p.dataset.item); }); });
+}
+renderPalette();
+document.getElementById('paletteSearch').addEventListener('input', function (e) { renderPalette(e.target.value); });
+
+/* ---------- inspector ---------- */
+function tpl(v) { return typeof v === 'string' ? v : JSON.stringify(v); }
+function fieldTpl(label, v, hint) { return '<div class="field"><label>' + label + '</label><div class="varpick"><input class="in tpl" value="' + AF.esc(tpl(v)) + '"/><button class="btn" title="插入变量">{x}</button></div>' + (hint ? '<div class="hint">' + hint + '</div>' : '') + '</div>'; }
+function ruleRow(c) { return '<div class="rule-row"><input class="in tpl" value="' + AF.esc(tpl(c.left)) + '"/><select class="in"><option' + (c.op === 'gt' ? ' selected' : '') + '>gt &gt;</option><option' + (c.op === 'gte' ? ' selected' : '') + '>gte ≥</option><option' + (c.op === 'lt' ? ' selected' : '') + '>lt &lt;</option><option' + (c.op === 'eq' ? ' selected' : '') + '>eq =</option><option' + (c.op === 'ne' ? ' selected' : '') + '>ne ≠</option><option>in</option><option>contains</option><option>is_null</option></select><input class="in tpl" value="' + AF.esc(tpl(c.right)) + '"/><span class="del">×</span></div>'; }
+function ruleGroup(w) {
+  var op = w.all ? 'all' : w.any ? 'any' : null; var rows = op ? w[op] : [w];
+  var html = '<div class="rule-group"><div class="gh">满足 <select><option' + (op !== 'any' ? ' selected' : '') + '>全部条件 (all)</option><option' + (op === 'any' ? ' selected' : '') + '>任一条件 (any)</option></select><span class="spacer"></span><a href="#" class="small">高级表达式</a></div>';
+  rows.forEach(function (r) { html += r.all || r.any ? ruleGroup(r) : ruleRow(r); });
+  html += '<button class="btn sm ghost">+ 添加条件</button></div>';
+  return html;
+}
+function retryPane(n) {
+  var t = n.nodeType ? AF.typeOf(n.nodeType) : null, rp = n.retryPolicy || (t && t.retry) || dag.settings.defaultRetryPolicy || {}, to = n.timeouts || (t && t.timeouts) || {};
+  return '<div class="sect">重试策略 <span class="tag gray" style="font-weight:400">' + (n.retryPolicy ? '节点覆盖' : t ? 'NodeSpec 默认' : '流程默认') + '</span></div>' +
+    '<div class="defaults">三层合并：节点 &gt; NodeSpec 默认 &gt; 流程 settings · 上限 <b>' + ((t && t.maxAllowedAttempts) || 10) + '</b> 次</div>' +
+    '<div class="grid g2" style="gap:10px"><div class="field"><label>最大尝试次数</label><input class="in" value="' + (rp.maximumAttempts || 3) + '"/></div><div class="field"><label>初始间隔</label><input class="in" value="' + (rp.initialInterval || 'PT2S') + '"/></div><div class="field"><label>退避系数</label><input class="in" value="' + (rp.backoffCoefficient || 2) + '"/></div><div class="field"><label>最大间隔</label><input class="in" value="' + (rp.maximumInterval || 'PT1M') + '"/></div></div>' +
+    '<div class="field"><label>不重试的错误类型</label><div class="row" style="flex-wrap:wrap">' + ((rp.nonRetryableErrorTypes || ['ValidationError']).map(function (x) { return '<span class="chip">' + x + ' <span class="x">×</span></span>'; }).join('')) + '<button class="btn sm ghost">+ 添加</button></div><div class="hint">与 Activity 抛出的 ApplicationFailure.type 逐字匹配（Java/Python 统一白名单）</div></div>' +
+    '<div class="sect">超时</div><div class="grid g2" style="gap:10px"><div class="field"><label>单次执行 startToClose</label><input class="in" value="' + (to.startToClose || 'PT5M') + '"/></div><div class="field"><label>含重试总时长 scheduleToClose</label><input class="in" value="' + (to.scheduleToClose || 'PT30M') + '"/></div><div class="field"><label>心跳 heartbeat</label><input class="in" value="' + (to.heartbeat || '—') + '"/></div><div class="field"><label>排队 scheduleToStart</label><input class="in" value="—"/></div></div>';
+}
+function errorPane(n) {
+  var a = (n.onError && n.onError.action) || 'pause';
+  return '<div class="sect">重试耗尽后的处理 onError</div><div class="col" style="gap:8px">' +
+    [['pause', '暂停等待人工处置', '进入 paused，运营可重试 / 跳过 / 终止（默认）'], ['fail', '直接失败', '整个运行失败'], ['skip', '跳过并写入默认输出', 'skipOutput 写入 outputKey，流程继续'], ['route', '走错误分支', '新增 error 连接桩，由画布连线决定去向']].map(function (o) {
+      return '<label class="row" style="align-items:flex-start;gap:8px;padding:8px;border:1px solid ' + (a === o[0] ? 'var(--primary)' : 'var(--border)') + ';border-radius:8px;background:' + (a === o[0] ? 'var(--primary-50)' : '#fff') + '"><input type="radio" name="onerr"' + (a === o[0] ? ' checked' : '') + '/><div><div style="font-weight:500">' + o[1] + '</div><div class="muted small">' + o[2] + '</div></div></label>';
+    }).join('') + '</div>' + (a === 'skip' ? '<div class="field" style="margin-top:10px"><label>skipOutput</label><textarea class="in mono" rows="2">' + AF.esc(JSON.stringify(n.onError.skipOutput)) + '</textarea></div>' : '') +
+    '<div class="sect">断点</div><label class="row"><span class="switch ' + (n.breakpoint ? 'on' : '') + '"></span> 到达此节点前暂停（调试草稿用；运行时也可动态设置）</label>';
+}
+function renderInspector(n) {
+  var hd = document.getElementById('inspHd'), body = document.getElementById('inspBody');
+  if (!n) { hd.innerHTML = '属性面板'; body.innerHTML = '<div class="sel-none">在画布上选择一个节点<br/>或从左侧面板拖入新节点<div class="k"><kbd>Ctrl</kbd> + <kbd>K</kbd> 快速添加</div></div>'; return; }
+  var t = n.nodeType ? AF.typeOf(n.nodeType) : null;
+  hd.innerHTML = '<span>' + AF.esc(n.name) + '</span><span class="tag gray mono" style="font-weight:400">' + AF.esc(n.id) + '</span><span class="spacer"></span>' + (t ? '<span class="tag ' + (t.lang === 'python' ? 'blue' : 'green') + '">' + t.lang + ' · v' + t.version + '</span>' : '');
+  var tabs = ['基本'];
+  if (n.kind === 'task') tabs = tabs.concat(['输入映射', '配置', '重试/超时', '失败处理']);
+  if (n.kind === 'branch') tabs = tabs.concat(['分支规则']);
+  if (n.kind === 'approval') tabs = tabs.concat(['审批人', '内容与表单', '超时/提醒']);
+  if (n.kind === 'foreach') tabs = tabs.concat(['循环配置', '循环体', '失败处理']);
+  if (n.kind === 'assign') tabs = tabs.concat(['赋值']);
+  if (n.kind === 'subflow') tabs = tabs.concat(['子流程']);
+  if (n.kind === 'end') tabs = tabs.concat(['输出']);
+  tabs.push('JSON');
+  var html = '<div class="tabs">' + tabs.map(function (x, i) { return '<button data-tab="' + x + '"' + (i === 0 ? ' class="active"' : '') + '>' + x + '</button>'; }).join('') + '</div><div class="tabpanes">';
+  // 基本
+  html += '<div class="tabpane active" data-tab="基本"><div class="field"><label>名称<span class="req">*</span></label><input class="in" value="' + AF.esc(n.name) + '"/></div><div class="field"><label>节点 ID</label><input class="in mono" value="' + n.id + '" disabled/><div class="hint">生成后不可变，作为 {{nodes.' + n.id + '.output}} 引用键</div></div>' +
+    (t ? '<div class="field"><label>节点类型</label><input class="in mono" value="' + n.nodeType + '" disabled/><div class="hint">' + (t.category) + ' · 队列 ' + t.queue + ' · 在线 Worker ' + t.workers + (t.sideEffect ? ' · <b>写操作（幂等）</b>' : '') + '</div></div>' : '') +
+    (n.outputKey !== undefined || n.kind === 'task' ? '<div class="field"><label>输出写入上下文键 outputKey</label><input class="in mono" value="' + (n.outputKey || n.id) + '"/><div class="hint">下游以 {{context.' + (n.outputKey || n.id) + '.xxx}} 引用' + (t ? '；输出字段：' + t.outputs.join(', ') : '') + '</div></div>' : '') +
+    '<div class="field"><label>描述</label><textarea class="in" rows="2">' + AF.esc(n.description || '') + '</textarea></div></div>';
+  // task
+  if (n.kind === 'task') {
+    html += '<div class="tabpane" data-tab="输入映射"><div class="muted small" style="margin-bottom:10px">按 NodeSpec.inputSchema 逐字段映射；支持 <span class="mono">{{input.x}}</span> / <span class="mono">{{context.x}}</span> / <span class="mono">{{nodes.id.output.x}}</span>，单占位符保留原类型</div>';
+    Object.keys(t.inputs).forEach(function (k) { html += fieldTpl(k + ' <span class="muted mono">' + t.inputs[k] + '</span>' + (k === 'period' || k === 'supplier_id' || k.indexOf('_ref') > 0 ? '<span class="req">*</span>' : ''), n.inputs[k] !== undefined ? n.inputs[k] : ''); });
+    html += '<div class="sect">变量选择器（拓扑前驱可用）</div><div class="row" style="flex-wrap:wrap;gap:4px">' + ['input.period', 'input.supplier_id', 'input.threshold', 'context.docs.batches.erp_po', 'context.docs.counts', 'context.diff.count', 'context.diff.total_abs_amount', 'context.diff.detail_ref', 'run.id'].map(function (v) { return '<span class="chip mono" style="cursor:pointer">' + v + '</span>'; }).join('') + '</div></div>';
+    html += '<div class="tabpane" data-tab="配置"><div class="muted small" style="margin-bottom:10px">由 NodeSpec.configSchema + uiSchema 自动生成表单（rjsf）；设计期常量，不支持模板</div>';
+    Object.keys(n.config || {}).forEach(function (k) { var v = n.config[k]; html += '<div class="field"><label>' + k + '</label>' + (k === 'source_profile' ? '<select class="in"><option' + (v === 'erp_dev' ? ' selected' : '') + '>erp_dev（直连库 · SQL Server 只读）</option><option>erp_api（接口 · ERP 中间层）</option><option' + (v === 'supplier_files' ? ' selected' : '') + '>supplier_files（导出文件 · xlsx 上传）</option></select><div class="hint">企业配置 › ERP 数据源 profile；密钥与连接串不进 DAG</div>' : k === 'llm_profile' ? '<select class="in"><option>default（OpenAI 兼容 · 私有化 Qwen）</option><option>azure-gpt4o</option></select>' : '<input class="in" value="' + AF.esc(typeof v === 'string' ? v : JSON.stringify(v)) + '"/>') + '</div>'; });
+    html += '</div>';
+    html += '<div class="tabpane" data-tab="重试/超时">' + retryPane(n) + '</div>';
+    html += '<div class="tabpane" data-tab="失败处理">' + errorPane(n) + '</div>';
+  }
+  if (n.kind === 'branch') {
+    html += '<div class="tabpane" data-tab="分支规则"><div class="muted small" style="margin-bottom:10px">结构化规则由 Workflow 内纯函数求值（确定性）；字段只能来自 input / context / 前驱输出；不接受自由文本或 LLM 决定走向</div>';
+    n.cases.forEach(function (c, i) { html += '<div class="case"><div class="ch"><b>case ' + (i + 1) + '</b><span class="hid">handle=' + c.id + '</span><input class="in" style="height:24px;width:140px;font-size:12px" value="' + AF.esc(c.label || '') + '"/><span class="spacer"></span><span class="muted">↑↓</span><span class="del muted">×</span></div><div class="cb">' + ruleGroup(c.when) + '</div></div>'; });
+    html += '<button class="btn sm" style="margin-bottom:12px">+ 添加分支 case</button><div class="field"><label>默认分支 handle</label><input class="in mono" value="' + n.default + '"/><div class="hint">无 case 命中时走的出边（必须有且仅有一条连线）</div></div><div class="field"><label>求值方式</label><select class="in"><option' + (n.evaluation !== 'all_match' ? ' selected' : '') + '>first_match · 首个命中（互斥分支）</option><option' + (n.evaluation === 'all_match' ? ' selected' : '') + '>all_match · 全部命中（多路并发）</option></select></div>' +
+      '<div class="sect">用历史上下文试算</div><div class="row"><select class="in" style="flex:1"><option>run_01J8QK7V… (SUP-0002, 14:02)</option><option>run_01J8QH… (SUP-0001, 昨天)</option></select><button class="btn" onclick="AF.toast(\'试算结果：命中 big（32,320.35 > 10,000）\')">试算</button></div></div>';
+  }
+  if (n.kind === 'approval') {
+    var a = n.assignees;
+    html += '<div class="tabpane" data-tab="审批人"><div class="muted small" style="margin-bottom:10px">审批人来自组织架构（OIDC / 企业微信同步），运行时由中台解析为用户集合并推送通知；Workflow 只等待 Signal</div>' +
+      '<div class="field"><label>角色</label><div class="row" style="flex-wrap:wrap">' + a.roles.map(function (r) { return '<span class="chip">角色 · ' + r + ' <span class="x">×</span></span>'; }).join('') + '<button class="btn sm ghost">+ 选择角色</button></div></div>' +
+      '<div class="field"><label>部门</label><div class="row" style="flex-wrap:wrap">' + a.departments.map(function (r) { return '<span class="chip">部门 · ' + (r.name || r.id) + (r.includeChildren ? '（含子部门）' : '') + ' <span class="x">×</span></span>'; }).join('') + '<button class="btn sm ghost">+ 组织架构树</button></div>' +
+      '<div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-top:6px;font-size:12px;background:#fafbfd"><div>▾ 集团总部</div><div style="padding-left:14px">▾ 财务共享中心 <span class="muted">(23)</span></div><div style="padding-left:28px;color:var(--primary);font-weight:500">☑ 应付组 <span class="muted">(6) · 主管 李经理</span></div><div style="padding-left:28px">☐ 应收组 <span class="muted">(8)</span></div><div style="padding-left:28px">☐ 总账组 <span class="muted">(9)</span></div><div style="padding-left:14px">▸ 采购中心 <span class="muted">(41)</span></div></div></div>' +
+      '<div class="field"><label>指定人</label><div class="row" style="flex-wrap:wrap">' + (a.users.length ? a.users.map(function (u) { return '<span class="chip user">' + u + ' <span class="x">×</span></span>'; }).join('') : '') + '<input class="in" style="width:160px;height:26px" placeholder="搜索姓名 / 工号…"/></div></div>' +
+      '<div class="field"><label>动态</label><div class="row" style="flex-wrap:wrap">' + a.dynamic.map(function (d) { return '<span class="chip">' + (d === 'manager_of_initiator' ? '发起人上级' : d) + ' <span class="x">×</span></span>'; }).join('') + '<select class="in" style="width:170px;height:26px"><option>+ 添加动态项…</option><option>发起人上级</option><option>发起人所在部门主管</option><option>来自变量 {{…}}</option></select></div></div>' +
+      '<div class="field"><label>决策策略</label><select class="in"><option' + (a.strategy === 'any' ? ' selected' : '') + '>any · 任一人通过即通过</option><option>all · 全部通过</option><option>quorum(2) · 至少 2 人</option></select></div>' +
+      '<div class="sect">解析预览（当前组织架构）</div><div class="row" style="flex-wrap:wrap;gap:4px">' + ['张会计', '王会计', '刘会计', '赵会计', '孙会计', '周会计', '李经理', 'alice', 'bob', 'chen'].map(function (u) { return '<span class="chip user">' + u + '</span>'; }).join('') + '</div><div class="hint" style="margin-top:6px">共 10 人（去重）· 为空时回退到兜底角色并告警</div></div>';
+    html += '<div class="tabpane" data-tab="内容与表单">' + fieldTpl('审批标题', n.title) + '<div class="field"><label>摘要（支持模板）</label><textarea class="in tpl" rows="3">' + AF.esc(n.summary) + '</textarea></div>' + fieldTpl('附件 artifact 引用', n.attachments ? n.attachments[0] : '', '前端按 MinIO 预签名 URL 预览 / 下载') +
+      '<div class="sect">审批表单 formSchema</div>' + Object.keys((n.formSchema || {}).properties || {}).map(function (k) { var p = n.formSchema.properties[k]; return '<div class="row" style="margin-bottom:6px"><input class="in mono" value="' + k + '" style="width:110px"/><input class="in" value="' + AF.esc(p.title) + '" style="flex:1"/><select class="in" style="width:110px"><option>' + (p.enum ? '单选 enum' : '文本') + '</option></select><span class="del muted">×</span></div>'; }).join('') + '<button class="btn sm ghost">+ 添加字段</button>' +
+      '<div class="sect">输出</div><div class="muted small">写入 <span class="mono">context.' + n.outputKey + '</span> = { decision, operator, operators[], comment, form, decided_at }</div></div>';
+    html += '<div class="tabpane" data-tab="超时/提醒"><div class="grid g2" style="gap:10px"><div class="field"><label>审批超时</label><input class="in" value="' + n.timeout + '"/></div><div class="field"><label>超时后</label><select class="in"><option' + (n.onTimeout === 'route' ? ' selected' : '') + '>走 timeout 出边</option><option>视为通过</option><option>视为驳回</option><option>流程失败</option></select></div></div>' +
+      '<div class="grid g2" style="gap:10px"><div class="field"><label>提醒间隔</label><input class="in" value="' + (n.reminder ? n.reminder.every : '') + '"/></div><div class="field"><label>提醒通道</label><select class="in"><option>wecom-default（企业微信 · 默认）</option><option>dingtalk-ops</option><option>email-finance</option></select><div class="hint">通道在 企业配置 › 通知通道 中维护</div></div></div></div>';
+  }
+  if (n.kind === 'foreach') {
+    html += '<div class="tabpane" data-tab="循环配置"><div class="muted small" style="margin-bottom:10px">对上下文数组逐项执行；只迭代 ID / 小对象，明细由循环体自取（坑 3）。大列表按 batchSize 自动 continue-as-new</div>' +
+      fieldTpl('items <span class="muted">必须渲染为数组</span>', n.items, '变量选择器只列出数组类型字段') +
+      '<div class="grid g2" style="gap:10px"><div class="field"><label>元素别名 itemAlias</label><input class="in mono" value="' + n.itemAlias + '"/><div class="hint">循环体内 {{' + n.itemAlias + '}} / {{loop.index}}</div></div><div class="field"><label>并发上限</label><input class="in" value="' + n.concurrency + '"/><div class="hint">≤ 50</div></div><div class="field"><label>maxItems</label><input class="in" value="' + n.maxItems + '"/></div><div class="field"><label>batchSize（continue-as-new）</label><input class="in" value="' + n.batchSize + '"/></div></div>' +
+      '<div class="sect">结果收集 collect</div><div class="grid g2" style="gap:10px"><div class="field"><label>模式</label><select class="in"><option' + (n.collect.mode === 'list' ? ' selected' : '') + '>list · 每项输出组成数组</option><option>count · 只统计</option><option>none</option></select></div><div class="field"><label>写入 outputKey</label><input class="in mono" value="' + n.collect.outputKey + '"/></div></div>' +
+      '<div class="field"><label>收集字段（来自循环体输出 Schema，白名单防膨胀）</label><div class="row" style="flex-wrap:wrap">' + n.collect.fields.map(function (f) { return '<span class="chip mono">' + f + ' <span class="x">×</span></span>'; }).join('') + '<button class="btn sm ghost">+ 选择字段</button></div></div></div>';
+    html += '<div class="tabpane" data-tab="循环体"><div class="field"><label>循环体类型</label><div class="flowswitch" style="display:inline-flex"><button' + (n.body.type === 'task' ? ' class="on"' : '') + '>单任务 (Activity / item)</button><button' + (n.body.type === 'subflow' ? ' class="on"' : '') + '>子流程 (Child Workflow / item)</button></div></div>' +
+      (n.body.type === 'subflow' ? '<div class="field"><label>子流程</label><select class="in"><option>recon.purchase_monthly · 采购月度对账</option><option>common.notify_supplier · 供应商通知</option></select></div><div class="field"><label>版本策略</label><select class="in"><option>published · 发布父流程时固化为当前发布版本（v3）</option><option>固定 v3</option><option>固定 v2</option></select><div class="hint">固化后子流程发布新版本不影响父流程，版本页会提示可更新</div></div>' : '<div class="field"><label>节点类型</label><select class="in"><option>' + n.body.nodeType + '</option></select></div>') +
+      '<div class="sect">输入映射（作用域含 {{' + n.itemAlias + '}} / {{loop.index}}）</div>' + Object.keys(n.body.inputs || {}).map(function (k) { return fieldTpl(k, n.body.inputs[k]); }).join('') + '</div>';
+    html += '<div class="tabpane" data-tab="失败处理"><div class="sect">逐项失败 onItemError</div><div class="col" style="gap:8px">' + [['continue', '继续其他 item', '记录失败项，全部处理完后走 out；失败数进入 collect 结果'], ['fail_fast', '快速失败', '取消其余 item，节点失败进入 onError']].map(function (o) { return '<label class="row" style="align-items:flex-start;gap:8px;padding:8px;border:1px solid ' + (n.onItemError === o[0] ? 'var(--primary)' : 'var(--border)') + ';border-radius:8px;background:' + (n.onItemError === o[0] ? 'var(--primary-50)' : '#fff') + '"><input type="radio" name="oie"' + (n.onItemError === o[0] ? ' checked' : '') + '/><div><div style="font-weight:500">' + o[1] + '</div><div class="muted small">' + o[2] + '</div></div></label>'; }).join('') + '</div>' + errorPane(n) + '</div>';
+  }
+  if (n.kind === 'assign') html += '<div class="tabpane" data-tab="赋值">' + n.assignments.map(function (a) { return '<div class="row" style="margin-bottom:8px"><input class="in mono" value="' + AF.esc(a.target) + '" style="flex:1"/><span>=</span><input class="in tpl" value="' + AF.esc(tpl(a.value)) + '" style="flex:1.4"/><span class="del muted">×</span></div>'; }).join('') + '<button class="btn sm ghost">+ 添加赋值</button><div class="hint" style="margin-top:8px">Workflow 内纯函数执行，不产生 Activity</div></div>';
+  if (n.kind === 'subflow') html += '<div class="tabpane" data-tab="子流程"><div class="field"><label>子流程</label><select class="in"><option>' + n.flowKey + '</option></select></div><div class="field"><label>版本策略</label><select class="in"><option>published</option></select></div>' + Object.keys(n.inputs || {}).map(function (k) { return fieldTpl(k, n.inputs[k]); }).join('') + '</div>';
+  if (n.kind === 'end') html += '<div class="tabpane" data-tab="输出"><div class="field"><label>结束状态</label><select class="in"><option' + (n.status === 'success' ? ' selected' : '') + '>success</option><option' + (n.status === 'failed' ? ' selected' : '') + '>failed（业务失败终止）</option></select></div>' + Object.keys(n.outputs || {}).map(function (k) { return fieldTpl(k, n.outputs[k]); }).join('') + '<div class="hint">作为 Workflow 返回值与开放 API 回调载荷</div></div>';
+  html += '<div class="tabpane" data-tab="JSON"><div class="codebox" style="max-height:60vh">' + AF.json(n) + '</div></div></div>';
+  body.innerHTML = html; AF.tabs(body);
+  body.querySelectorAll('input,select,textarea').forEach(function (i) { i.addEventListener('change', markDirty); });
+}
+
+/* ---------- validation / drawer ---------- */
+var issues = [];
+function validate() {
+  issues = [];
+  var ids = {}; dag.nodes.forEach(function (n) { ids[n.id] = n; });
+  var hasIn = {}, hasOut = {}; dag.edges.forEach(function (e) { hasIn[e.target] = 1; hasOut[e.source] = 1; });
+  dag.nodes.forEach(function (n) {
+    if (n.kind !== 'start' && !hasIn[n.id]) issues.push({ level: 'error', code: 'NODE_UNREACHABLE', node: n.id, msg: '节点没有入边，不可达' });
+    if (n.kind !== 'end' && !hasOut[n.id]) issues.push({ level: 'error', code: 'NODE_DEAD_END', node: n.id, msg: '节点没有出边，无法到达 end' });
+    if (n.kind === 'branch') { n.cases.concat([{ id: n.default }]).forEach(function (c) { if (!dag.edges.some(function (e) { return e.source === n.id && e.sourceHandle === c.id; })) issues.push({ level: 'error', code: 'BRANCH_MISSING_EDGE', node: n.id, msg: '分支 handle ' + c.id + ' 没有出边' }); }); }
+    if (n.kind === 'approval') { ['approved', 'rejected'].forEach(function (h) { if (!dag.edges.some(function (e) { return e.source === n.id && e.sourceHandle === h; })) issues.push({ level: 'error', code: 'APPROVAL_MISSING_EDGE', node: n.id, msg: '审批节点缺少 ' + h + ' 出边' }); }); if (!n.timeout) issues.push({ level: 'warning', code: 'APPROVAL_NO_TIMEOUT', node: n.id, msg: '审批无超时' }); }
+    if (n.kind === 'task') { var t = AF.typeOf(n.nodeType); if (t && t.workers === 0) issues.push({ level: 'warning', code: 'NODE_TYPE_OFFLINE', node: n.id, msg: '节点类型 ' + n.nodeType + ' 当前无在线 Worker（运行将等待）' }); Object.keys(n.inputs || {}).forEach(function (k) { if (n.inputs[k] === '') issues.push({ level: 'error', code: 'INPUT_REQUIRED', node: n.id, msg: '输入 ' + k + ' 未映射' }); }); }
+    if (n.kind === 'foreach' && n.items.indexOf('{{context.}}') >= 0) issues.push({ level: 'error', code: 'FOREACH_ITEMS_INVALID', node: n.id, msg: 'items 表达式未指定数组字段' });
+  });
+  if (dag.flow.key === 'recon.purchase_monthly') {
+    issues.push({ level: 'warning', code: 'TEMPLATE_UNRESOLVED', node: 'approve_diff', msg: '摘要中 context.classified.categories 在 classify_diff 被跳过时可能为空（onError=skip）' });
+    issues.push({ level: 'warning', code: 'BREAKPOINT_IN_DRAFT', node: 'classify_diff', msg: '草稿包含设计期断点，发布前建议移除' });
+  }
+  var errs = issues.filter(function (i) { return i.level === 'error'; }).length, warns = issues.length - errs;
+  document.getElementById('errCnt').textContent = errs + ' 错误'; document.getElementById('warnCnt').textContent = warns + ' 警告';
+  document.getElementById('issues').innerHTML = issues.length ? issues.map(function (i) { return '<div class="issue" data-node="' + i.node + '"><span class="lv ' + i.level + '">' + (i.level === 'error' ? 'ERROR' : 'WARN') + '</span><span class="code">' + i.code + '</span><span class="where">' + i.node + '</span><span>' + AF.esc(i.msg) + '</span></div>'; }).join('') : '<div class="empty">校验通过，没有问题</div>';
+  document.querySelectorAll('.issue').forEach(function (el) { el.addEventListener('click', function () { canvas.select(el.dataset.node); }); });
+  document.getElementById('btnPublish').disabled = errs > 0;
+  return errs;
+}
+validate();
+
+var dirty = false;
+function markDirty() { dirty = true; document.getElementById('btnSave').textContent = '保存草稿 •'; }
+document.getElementById('btnSave').addEventListener('click', function () { var e = validate(); dirty = false; this.textContent = '保存草稿'; AF.toast(e ? '草稿已保存（含 ' + e + ' 个错误，不可发布）' : '草稿已保存 · 后端校验通过'); });
+document.getElementById('btnValidate').addEventListener('click', function () { var e = validate(); AF.toast(e ? '发现 ' + e + ' 个错误' : '校验通过'); document.getElementById('drawer').style.display = 'flex'; });
+document.getElementById('btnJson').addEventListener('click', function () { document.getElementById('jsonBox').innerHTML = AF.json(dag); AF.modal('jsonModal'); });
+document.getElementById('btnPublish').addEventListener('click', function () { AF.modal('publishModal'); });
+document.getElementById('btnRun').addEventListener('click', function () { AF.modal('runModal'); });
+document.getElementById('drawerToggle').addEventListener('click', function () { var d = document.getElementById('drawer'); var c = d.style.height === '32px'; d.style.height = c ? '160px' : '32px'; this.textContent = c ? '收起' : '展开'; });
+document.getElementById('zIn').addEventListener('click', function () { canvas.zoom(1.15); });
+document.getElementById('zOut').addEventListener('click', function () { canvas.zoom(0.87); });
+document.getElementById('zFit').addEventListener('click', function () { canvas.fit(); });
+document.querySelectorAll('.flowswitch [data-flow]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.querySelectorAll('.flowswitch [data-flow]').forEach(function (x) { x.classList.remove('on'); }); b.classList.add('on');
+    var src = b.dataset.flow === 'foreach' ? AF.dagForeach : AF.dagDemo;
+    dag = JSON.parse(JSON.stringify(src)); canvas.dag = dag; canvas.selected = null; canvas.fit(); canvas.render(); renderInspector(null); validate();
+    document.getElementById('flowTitle').textContent = dag.flow.name;
+    var fe = b.dataset.flow === 'foreach';
+    document.getElementById('verTag').textContent = fe ? '草稿 v2' : '草稿 v4';
+    document.getElementById('verNote').textContent = fe ? '基于 v1（当前发布）· 循环体锁定 recon.purchase_monthly v3 · 最后保存 昨天 18:05' : '基于 v3（当前发布）· 最后保存 13:42 · alice';
+  });
+});
+
+/* minimap（示意） */
+function minimap() {
+  var mm = document.getElementById('minimap'); var html = '';
+  dag.nodes.forEach(function (n) { html += '<i style="left:' + (n.position.x / 12) + 'px;top:' + (n.position.y / 6 + 4) + 'px;width:' + (n.kind === 'start' || n.kind === 'end' ? 6 : 14) + 'px;height:5px"></i>'; });
+  html += '<div class="vp" style="left:2px;top:2px;width:120px;height:70px"></div>'; mm.innerHTML = html;
+}
+minimap(); setInterval(minimap, 1500);
+if (/flow=foreach/.test(location.hash)) document.querySelector('.flowswitch [data-flow="foreach"]').click();
+(function () { var m = /select=([\w]+)/.exec(location.hash), t = /tab=([^&]+)/.exec(location.hash); if (m) setTimeout(function () { canvas.select(m[1]); if (t) { var b = document.querySelector('#inspBody .tabs button[data-tab="' + decodeURIComponent(t[1]) + '"]'); if (b) b.click(); } }, 50); })();
+</script>
+</body>
+</html>

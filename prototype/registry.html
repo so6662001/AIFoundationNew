@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<title>节点注册中心 · Agent Foundation</title>
+<link rel="stylesheet" href="assets/app.css"/>
+<style>
+  .layout{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:16px;align-items:start}
+  .tt{display:flex;align-items:center;gap:8px}
+  .tt .ico{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;color:#fff;font-size:10px;font-weight:700}
+  .tt .n{font-weight:600}.tt .k{font-family:var(--mono);font-size:11px;color:var(--text-3)}
+  .schema{font-family:var(--mono);font-size:11.5px;background:#fafbfd;border:1px solid var(--border);border-radius:6px;padding:8px 10px;white-space:pre;overflow:auto}
+  .wk{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}
+  .wk:last-child{border-bottom:0}
+  .filters{display:flex;gap:6px;flex-wrap:wrap}
+  .filters .chip{cursor:pointer}.filters .chip.on{background:var(--primary-50);border-color:var(--primary);color:var(--primary)}
+  tr.sel td{background:var(--primary-50)}
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+  <main class="main"><div class="page">
+    <div class="row" style="margin-bottom:14px"><h2 style="margin:0;font-size:18px">节点注册中心</h2><span class="muted">17 个节点类型 · 5 个任务队列 · 4 个 Worker 在线</span><span class="spacer"></span><input class="in" placeholder="搜索 type / 名称 / 标签" style="width:240px"/><button class="btn" onclick="AF.toast('已导出 node-types.json')">导出 NodeSpec</button><button class="btn primary" onclick="AF.modal('howModal')">如何新增节点</button></div>
+
+    <div class="grid g4" style="margin-bottom:14px">
+      <div class="card stat"><div class="lbl">节点类型</div><div class="val">17<small>Java 15 · Python 2</small></div><div class="trend muted">active 16 · deprecated 1</div></div>
+      <div class="card stat"><div class="lbl">在线 Worker</div><div class="val">4<small>/ 5 服务</small></div><div class="trend down">sales-service 离线 12m → <a href="#">告警</a></div></div>
+      <div class="card stat"><div class="lbl">今日 Activity 执行</div><div class="val">4,812<small>失败 1.3%</small></div><div class="trend up">P95 耗时 8.2s</div></div>
+      <div class="card stat"><div class="lbl">写类节点（sideEffect）</div><div class="val">3<small>均已声明幂等</small></div><div class="trend muted">create_debit_note · notify · erp_writeback</div></div>
+    </div>
+
+    <div class="layout">
+      <div class="card">
+        <div class="hd">节点类型<span class="spacer"></span><div class="filters"><span class="chip on">全部</span><span class="chip">对账</span><span class="chip">AI 采购</span><span class="chip">AI 销售</span><span class="chip">通用</span><span class="chip">LLM</span><span class="chip">Java</span><span class="chip">Python</span><span class="chip">离线</span></div></div>
+        <table class="tbl"><thead><tr><th>节点</th><th>版本</th><th>队列</th><th>语言</th><th>Worker</th><th>今日执行 / 失败率</th><th>P95</th><th>状态</th></tr></thead><tbody id="rows"></tbody></table>
+      </div>
+      <div class="card" id="detail"></div>
+    </div>
+  </div></main>
+</div>
+
+<div class="modal-mask" id="howModal"><div class="modal" style="width:720px">
+  <div class="hd">按 SDK 规范新增节点（不改平台代码）<span class="close">×</span></div>
+  <div class="bd">
+    <ol style="margin:0 0 12px;padding-left:20px;line-height:1.9">
+      <li>在业务服务（如 AI 采购）引入 <span class="mono">node-sdk-spring-boot-starter</span>，配置 <span class="mono">agent.node-sdk.task-queues</span> 与 <span class="mono">scan-packages</span></li>
+      <li>定义 <span class="mono">Inputs / Config / Outputs</span> record（字段带 <span class="mono">@Title</span>），实现 <span class="mono">NodeActivity&lt;I,C,O&gt;</span> 并加 <span class="mono">@AgentNode(type, version, taskQueue, sideEffect, defaultRetry, defaultTimeouts)</span></li>
+      <li>所有 IO 在 <span class="mono">execute()</span> 内；大数据走 <span class="mono">ctx.artifacts()</span>；长任务 <span class="mono">ctx.heartbeat()</span>；错误分类 <span class="mono">Retryable / NonRetryableNodeException(type)</span></li>
+      <li>写 <span class="mono">NodeTestHarness</span> 单测（成功 / 可重试失败 / 不可重试失败 / 大输出）</li>
+      <li>启动服务 → starter 生成 NodeSpec 并 <span class="mono">POST /registry/node-types/bulk-upsert</span> → 本页与画布节点面板出现新节点</li>
+    </ol>
+    <div class="codebox">@AgentNode(type = "purchase.fetch_po_status", version = "2.3.1", name = "查询采购单状态",
+    category = "AI 采购", taskQueue = "nodes-purchase", sideEffect = false,
+    defaultRetry = @Retry(maximumAttempts = 3, initialInterval = "PT2S"),
+    defaultTimeouts = @Timeouts(startToClose = "PT2M"))
+@Component
+public class FetchPoStatusNode implements NodeActivity&lt;Inputs, Config, Outputs&gt; {
+  public record Inputs(@Title("采购单号") @NotNull String poNo) {}
+  public record Config() {}
+  public record Outputs(String status, String receivedQty, String invoiceQty) {}
+
+  @Override public Outputs execute(NodeContext ctx, Inputs in, Config cfg) {
+    ctx.log().info("查询 PO", Map.of("po", in.poNo()));
+    var po = poService.findByNo(in.poNo());                       // 原有 Java 业务代码
+    if (po == null) throw new NonRetryableNodeException("ValidationError", "PO 不存在");
+    return new Outputs(po.status(), po.receivedQty().toPlainString(), po.invoiceQty().toPlainString());
+  }
+}</div>
+  </div>
+  <div class="ft"><a class="btn" href="../docs/02-原子节点注册SDK规范.md">查看 SDK 规范</a><button class="btn primary close">知道了</button></div>
+</div></div>
+
+<script src="assets/data.js"></script>
+<script src="assets/app.js"></script>
+<script>
+AF.renderShell({ active: 'registry', crumbs: ['平台', '节点注册中心'] });
+var types = AF.nodeTypes.filter(function (t) { return t.kind === 'task'; });
+var stats = { 'recon.fetch_documents@1': [412, 0.5, '41.2s'], 'recon.match_and_diff@1': [410, 2.9, '26.8s'], 'recon.classify_diff@1': [402, 0.2, '6.9s'], 'recon.generate_report@1': [388, 0.0, '2.4s'], 'recon.list_suppliers@1': [3, 0, '2.9s'], 'recon.generate_summary_report@1': [1, 0, '3.1s'], 'purchase.fetch_po_status@1': [1860, 0.3, '0.8s'], 'purchase.create_debit_note@1': [92, 1.1, '1.9s'], 'sales.fetch_receipts@1': [0, 0, '—'], 'common.http_request@1': [512, 3.2, '1.2s'], 'common.sql_query@1': [220, 0.0, '4.4s'], 'common.file_import@1': [38, 5.3, '9.8s'], 'common.notify@1': [214, 0.0, '0.6s'], 'llm.classify_text@1': [140, 2.1, '7.5s'], 'llm.extract@1': [120, 1.7, '9.1s'] };
+var sel = 'recon.fetch_documents@1';
+function color(t) { return t.lang === 'python' ? '#3776ab' : 'var(--primary)'; }
+function renderRows() {
+  document.getElementById('rows').innerHTML = types.map(function (t) {
+    var s = stats[t.type] || [0, 0, '—'];
+    var st = t.workers === 0 ? '<span class="tag orange">Worker 离线</span>' : t.type === 'llm.extract@1' ? '<span class="tag gray">deprecated</span>' : '<span class="tag green">active</span>';
+    return '<tr class="' + (sel === t.type ? 'sel' : '') + '" data-t="' + t.type + '" style="cursor:pointer"><td><div class="tt"><span class="ico" style="background:' + color(t) + '">' + t.abbr + '</span><div><div class="n">' + t.name + (t.sideEffect ? ' <span class="tag orange" style="font-size:10px">写</span>' : '') + '</div><div class="k">' + t.type + '</div></div></div></td><td class="mono">' + t.version + '</td><td class="mono">' + t.queue + '</td><td><span class="tag ' + (t.lang === 'python' ? 'blue' : 'green') + '">' + t.lang + '</span></td><td class="num">' + t.workers + '</td><td class="num">' + s[0] + ' / ' + s[1] + '%</td><td class="num">' + s[2] + '</td><td>' + st + '</td></tr>';
+  }).join('');
+  document.querySelectorAll('#rows tr').forEach(function (r) { r.addEventListener('click', function () { sel = r.dataset.t; renderRows(); renderDetail(); }); });
+}
+function schemaOf(obj, req) { return '{\n  "type": "object",' + (req ? '\n  "required": ' + JSON.stringify(req) + ',' : '') + '\n  "properties": {\n' + Object.keys(obj).map(function (k) { var v = obj[k]; var ty = typeof v === 'string' ? (v.indexOf('[]') > 0 ? 'array' : v === 'number' ? 'number' : v === 'ref' ? 'string (ref://artifact)' : v === 'object' ? 'object' : 'string') : typeof v === 'number' ? 'integer' : Array.isArray(v) ? 'array' : 'string'; return '    "' + k + '": { "type": "' + ty + '"' + (typeof v !== 'string' ? ', "default": ' + JSON.stringify(v) : '') + ' }'; }).join(',\n') + '\n  }\n}'; }
+function renderDetail() {
+  var t = types.find(function (x) { return x.type === sel; }), s = stats[t.type] || [0, 0, '—'];
+  var workers = t.workers === 0 ? '<div class="empty" style="padding:12px">无在线 Worker · 最后心跳 12 分钟前（sales-service@host-c）<br/><span class="small">运行到该节点时 Temporal 会等待 Worker 上线，并触发 WorkerOffline 告警</span></div>' :
+    Array.from({ length: t.workers }).map(function (_, i) { return '<div class="wk"><span class="dot" style="background:var(--success)"></span><span class="mono">' + t.queue.replace('nodes-', '') + '-worker-' + (i + 1) + '@host-' + String.fromCharCode(97 + i) + '</span><span class="muted">sdk ' + (t.lang === 'python' ? 'py 1.8.0' : 'java 1.26.0') + '</span><span class="spacer"></span><span class="muted">心跳 ' + (5 + i * 7) + 's 前 · 并发槽 ' + (t.lang === 'python' ? '5' : '20') + '</span></div>'; }).join('');
+  document.getElementById('detail').innerHTML = '<div class="hd"><div class="tt"><span class="ico" style="background:' + color(t) + '">' + t.abbr + '</span><div><div class="n">' + t.name + '</div><div class="k">' + t.type + ' · v' + t.version + '</div></div></div><span class="spacer"></span><button class="btn sm" onclick="AF.toast(\'已标记 deprecated：画布不可新增，已有 DAG 校验 warning\')">废弃</button></div>' +
+    '<div class="tabs" data-target="dp"><button class="active" data-tab="概览">概览</button><button data-tab="输入">inputSchema</button><button data-tab="输出">outputSchema</button><button data-tab="配置">configSchema</button><button data-tab="Worker">Worker</button><button data-tab="引用">被引用</button></div><div class="tabpanes" id="dp">' +
+    '<div class="tabpane active" data-tab="概览" style="padding:14px"><dl class="kv" style="grid-template-columns:100px 1fr"><dt>分类</dt><dd>' + t.category + '</dd><dt>语言</dt><dd>' + t.lang + (t.lang === 'python' ? '（llm-worker，仅 Activity）' : '（内嵌 Worker / 独立 Worker）') + '</dd><dt>任务队列</dt><dd class="mono">' + t.queue + '</dd><dt>副作用</dt><dd>' + (t.sideEffect ? '<span class="tag orange">是</span> 必须使用 idempotencyKey' : '否（只读）') + '</dd><dt>默认重试</dt><dd class="mono">' + JSON.stringify(t.retry) + '</dd><dt>默认超时</dt><dd class="mono">' + JSON.stringify(t.timeouts) + '</dd><dt>输出预览字段</dt><dd class="mono">' + t.outputs.slice(0, 2).join(', ') + '</dd><dt>负责人</dt><dd>' + (t.category === 'AI 采购' ? 'purchase-team' : t.category === 'AI 销售' ? 'sales-team' : t.category === 'LLM' ? 'ai-platform' : 'recon-team') + '</dd><dt>今日</dt><dd>' + s[0] + ' 次 · 失败 ' + s[1] + '% · P95 ' + s[2] + '</dd><dt>兼容性</dt><dd>major 1 · 同 major 下 minor 升级 3 次，均通过 409 兼容检查</dd></dl></div>' +
+    '<div class="tabpane" data-tab="输入" style="padding:14px"><div class="schema">' + AF.esc(schemaOf(t.inputs, Object.keys(t.inputs).slice(0, 2))) + '</div></div>' +
+    '<div class="tabpane" data-tab="输出" style="padding:14px"><div class="schema">' + AF.esc('{\n  "type": "object",\n  "properties": {\n' + t.outputs.map(function (o) { return '    "' + o + '": { "type": "' + (o.indexOf('_ref') > 0 || o === 'ref' ? 'string (ref://artifact)' : o.indexOf('count') >= 0 ? 'integer' : o.indexOf('amount') >= 0 ? 'string (decimal)' : 'object|string') + '" }'; }).join(',\n') + '\n  }\n}') + '</div><div class="muted small" style="margin-top:8px">保留字校验：不允许 next_node / route / goto（LLM 不决定流程走向）</div></div>' +
+    '<div class="tabpane" data-tab="配置" style="padding:14px"><div class="schema">' + AF.esc(schemaOf(t.config)) + '</div></div>' +
+    '<div class="tabpane" data-tab="Worker" style="padding:14px">' + workers + '</div>' +
+    '<div class="tabpane" data-tab="引用" style="padding:14px"><div class="wk"><span>采购月度对账</span><span class="tag green">v3</span><span class="tag orange">草稿 v4</span><span class="spacer"></span><a href="editor.html">打开</a></div>' + (t.category === '对账' ? '<div class="wk"><span>采购月度对账 · 全部供应商</span><span class="tag green">v1</span><span class="spacer"></span><a href="editor.html#flow=foreach">打开</a></div>' : '') + (t.category === 'AI 采购' ? '<div class="wk"><span>采购发票三单匹配</span><span class="tag green">v7</span><span class="spacer"></span><a href="#">打开</a></div>' : '') + '</div></div>';
+  AF.tabs(document.getElementById('detail'));
+}
+renderRows(); renderDetail();
+</script>
+</body>
+</html>

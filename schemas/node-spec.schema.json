@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-foundation.local/schemas/node-spec.schema.json",
+  "title": "Agent Foundation NodeSpec",
+  "description": "原子节点注册中心中的节点类型定义（由 @node 装饰器生成或手写）",
+  "type": "object",
+  "required": ["type", "version", "name", "category", "taskQueue", "inputSchema", "outputSchema"],
+  "additionalProperties": false,
+  "properties": {
+    "type": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$", "description": "<namespace>.<name>" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "semver；major 变化表示契约不兼容" },
+    "major": { "type": "integer", "minimum": 0, "description": "由注册中心从 version 派生" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "category": { "type": "string", "minLength": 1, "maxLength": 32 },
+    "icon": { "type": "string" },
+    "description": { "type": "string", "maxLength": 2000 },
+    "taskQueue": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$" },
+    "sideEffect": { "type": "boolean", "default": false, "description": "true 表示会写外部系统，必须实现幂等" },
+    "language": { "type": "string", "enum": ["java", "python"], "default": "java" },
+    "supportsForeachItem": { "type": "boolean", "default": true },
+    "inputSchema": { "type": "object" },
+    "outputSchema": { "type": "object" },
+    "configSchema": { "type": "object" },
+    "uiSchema": { "type": "object" },
+    "defaultRetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maximumAttempts": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "initialInterval": { "type": "string" },
+        "backoffCoefficient": { "type": "number", "minimum": 1.0 },
+        "maximumInterval": { "type": "string" },
+        "nonRetryableErrorTypes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "defaultTimeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "startToClose": { "type": "string" },
+        "scheduleToClose": { "type": "string" },
+        "scheduleToStart": { "type": "string" },
+        "heartbeat": { "type": "string" }
+      }
+    },
+    "maxAllowedAttempts": { "type": "integer", "minimum": 1, "description": "DAG 中可配置的重试上限" },
+    "outputPreview": { "type": "array", "items": { "type": "string" } },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "owner": { "type": "string" },
+    "docsUrl": { "type": "string" },
+    "status": { "type": "string", "enum": ["active", "deprecated", "disabled"], "default": "active" },
+    "workers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": { "identity": { "type": "string" }, "lastSeenAt": { "type": "string" } }
+      }
+    }
+  }
+}

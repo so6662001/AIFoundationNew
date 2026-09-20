@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<title>运行列表 · Agent Foundation</title>
+<link rel="stylesheet" href="assets/app.css"/>
+<style>
+  .fbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .fbar .in{width:auto}
+  .quick{display:flex;gap:6px}
+  .quick .chip{cursor:pointer}.quick .chip.on{background:var(--primary-50);border-color:var(--primary);color:var(--primary)}
+  .prog{display:flex;gap:2px}.prog i{width:6px;height:14px;border-radius:2px;background:var(--gray-bg)}
+  .prog .ok{background:var(--success)}.prog .fail{background:var(--danger)}.prog .run{background:var(--primary)}.prog .wait{background:var(--purple)}.prog .pause{background:var(--warning)}
+  .pager{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--border);font-size:12px;color:var(--text-3)}
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+  <main class="main"><div class="page">
+    <div class="row" style="margin-bottom:12px"><h2 style="margin:0;font-size:18px">运行列表</h2><span class="muted">近 24h 251 次 · 进行中 9 · 待处置 1</span><span class="spacer"></span><label class="row small"><span class="switch on"></span> 实时刷新（SSE）</label><button class="btn" onclick="AF.toast('已在 Temporal UI 按 FlowKey 过滤打开')">Temporal UI ↗</button></div>
+    <div class="fbar">
+      <div class="quick"><span class="chip on">全部</span><span class="chip">进行中</span><span class="chip" style="color:var(--purple)">等待审批 3</span><span class="chip" style="color:var(--warning)">已暂停 1</span><span class="chip" style="color:var(--danger)">失败 4</span><span class="chip">成功</span></div>
+      <span class="sep" style="width:1px;height:20px;background:var(--border)"></span>
+      <select class="in"><option>全部流程</option><option>采购月度对账</option><option>采购月度对账 · 全部供应商</option><option>采购发票三单匹配</option><option>销售回款对账</option></select>
+      <select class="in"><option>全部版本</option></select>
+      <select class="in"><option>全部触发方式</option><option>手动</option><option>定时</option><option>开放 API</option><option>子流程</option></select>
+      <input class="in" placeholder="run_id / workflow_id / 输入参数（如 SUP-0002）" style="width:280px"/>
+      <input class="in" type="date" value="2026-09-19"/><span class="muted">→</span><input class="in" type="date" value="2026-09-19"/>
+      <label class="row small"><span class="switch"></span> 隐藏子运行（for-each item）</label>
+    </div>
+
+    <div class="card">
+      <table class="tbl"><thead><tr><th>运行</th><th>流程 / 版本</th><th>状态</th><th>节点进度</th><th>当前节点</th><th>输入摘要</th><th>触发</th><th>开始</th><th>耗时</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+      <div class="pager"><span>共 251 条</span><span class="spacer"></span><button class="btn sm ghost">‹</button><span>1 / 13</span><button class="btn sm ghost">›</button><select class="in" style="width:80px;height:26px;font-size:12px"><option>20 / 页</option></select></div>
+    </div>
+  </div></main>
+</div>
+<script src="assets/data.js"></script>
+<script src="assets/app.js"></script>
+<script>
+AF.renderShell({ active: 'runs', crumbs: ['运行', '运行列表'] });
+var runs = [
+  ['run_01J8QK7V…', 'run.html', '采购月度对账', 'v3', 'waiting_approval', 'ok ok ok ok ok wait - - - - -', '运营确认大额差异', 'SUP-0002 · 2026-08', 'alice（手动）', '14:02:11', '1h 02m', false],
+  ['run_01J8QM2B…', 'run.html#foreach', '采购月度对账 · 全部供应商', 'v1', 'running', 'ok ok run - -', 'foreach 12/20', '2026-08 · 20 供应商', 'schedule:monthly-recon', '13:00:00', '2h 05m', false],
+  ['run_01J8QM2B…:per_supplier:7', 'run.html', '↳ 采购月度对账（item 7 · SUP-0008）', 'v3', 'waiting_approval', 'ok ok ok ok ok wait - - - - -', '运营确认大额差异', 'SUP-0008 · 2026-08', 'parent:run_01J8QM2B…', '13:27:02', '38m', true],
+  ['run_01J8QM2B…:per_supplier:4', 'run.html', '↳ 采购月度对账（item 4 · SUP-0005）', 'v3', 'failed', 'ok fail - - - - - - - - -', '拉取单据', 'SUP-0005 · 2026-08', 'parent:run_01J8QM2B…', '13:00:12', '0m 48s', true],
+  ['run_01J8QJ3A…', '#', '采购发票三单匹配', 'v7', 'paused', 'ok ok pause - - -', '查询采购单状态（重试耗尽）', 'PO-2026-08-0912', 'apikey:erp-gateway', '12:41:30', '—', false],
+  ['run_01J8QH9C…', 'run.html', '采购月度对账', 'v3', 'succeeded', 'ok ok ok ok ok ok ok', '—', 'SUP-0001 · 2026-08', 'alice（手动）', '11:20:04', '2m 41s', false],
+  ['run_01J8QH2K…', '#', '采购发票三单匹配', 'v7', 'succeeded', 'ok ok ok ok ok ok', '—', 'PO-2026-08-0911', 'apikey:erp-gateway', '11:18:40', '0m 12s', false],
+  ['run_01J8QG2D…', '#', '销售回款对账', 'v2', 'failed', 'ok fail - - - -', '拉取回款记录（Worker 离线）', 'CUST-0210 · 2026-08', 'schedule:daily-sales', '09:00:00', '0m 48s', false],
+  ['run_01J8QF7X…', '#', '采购发票三单匹配', 'v7', 'succeeded', 'ok ok ok ok ok ok', '—', 'PO-2026-08-0907', 'apikey:erp-gateway', '08:52:11', '0m 15s', false],
+  ['run_01J8QE1P…', 'run.html', '采购月度对账', 'v3', 'succeeded', 'ok ok ok ok ok ok ok ok ok', '—', 'SUP-0009 · 2026-08', 'chen（手动）', '昨天 18:31', '3h 10m（含审批 3h 05m）', false],
+  ['run_01J8QD4M…', '#', '供应商通知子流程', 'v9', 'succeeded', 'ok ok ok', '—', 'SUP-0009', 'parent:run_01J8QE1P…', '昨天 18:29', '0m 06s', true],
+  ['run_01J8QC8W…', '#', '采购月度对账', 'v2', 'cancelled', 'ok ok ok ok wait', '运营确认大额差异', 'SUP-0004 · 2026-07', 'wang（手动）', '09-16 10:12', '取消于 09-17', false]
+];
+document.getElementById('rows').innerHTML = runs.map(function (r) {
+  var prog = r[5].split(' ').map(function (s) { return '<i class="' + (s === '-' ? '' : s) + '"></i>'; }).join('');
+  var st = r[4] === 'cancelled' ? '<span class="st-skipped"><span class="stag">已取消</span></span>' : AF.stag(r[4]);
+  return '<tr' + (r[11] ? ' style="color:var(--text-2)"' : '') + '><td class="mono"><a href="' + r[1] + '">' + r[0] + '</a></td><td>' + r[2] + ' <span class="tag gray">' + r[3] + '</span></td><td>' + st + '</td><td><div class="prog">' + prog + '</div></td><td class="small">' + r[6] + '</td><td class="mono small">' + r[7] + '</td><td class="small">' + r[8] + '</td><td class="small muted">' + r[9] + '</td><td class="small">' + r[10] + '</td><td><div class="row"><a class="btn sm" href="' + r[1] + '">监控</a>' + (r[4] === 'paused' || r[4] === 'failed' ? '<button class="btn sm primary" onclick="AF.toast(\'已发送 manual_action(retry)\')">重试</button>' : '') + (r[4] === 'waiting_approval' ? '<a class="btn sm success" href="approvals.html">审批</a>' : '') + '</div></td></tr>';
+}).join('');
+</script>
+</body>
+</html>
